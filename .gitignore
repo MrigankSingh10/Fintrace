@@ -1,0 +1,73 @@
+# Android / Gradle build outputs
+.gradle/
+**/build/
+**/.cxx/
+**/.externalNativeBuild/
+
+# Local Android SDK configuration (contains machine-specific paths)
+local.properties
+
+# Android Studio / IntelliJ user-specific files
+.idea/
+*.iml
+*.ipr
+*.iws
+
+# Signing keys and certificates — NEVER commit
+*.jks
+*.keystore
+*.p12
+*.pfx
+*.pem
+*.key
+keystore.properties
+signing.properties
+
+# Secrets / local environment files
+.env
+.env.*
+!.env.example
+secrets.properties
+secrets.xml
+
+# Firebase / service configuration (keep local unless deliberately reviewed)
+google-services.json
+GoogleService-Info.plist
+
+# Release artifacts / binaries
+*.apk
+*.aab
+app/release/
+outputs/
+
+# Finance Tracker user data / exports / databases
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+*.csv
+*.xls
+*.xlsx
+*.backup
+*.bak
+exports/
+backups/
+
+# Logs / temporary files
+*.log
+*.tmp
+*.swp
+.DS_Store
+Thumbs.db
+
+# Kotlin / Java tooling
+.kotlin/
+
+# Crash / profiling artifacts
+captures/
+.externalNativeBuild/
+
+# Keep Gradle wrapper files tracked
+!gradle/wrapper/gradle-wrapper.jar
+!gradle/wrapper/gradle-wrapper.properties
