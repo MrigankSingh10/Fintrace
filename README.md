@@ -17,7 +17,7 @@ transactions from banking SMS messages and helps visualize monthly spending.
 
 | Dashboard | Transactions | Analytics |
 |---|---|---|
-| screenshot | screenshot | screenshot |
+| ![Dashboard](screenshots/dashboard.png) | ![Transactions](screenshots/transactions.png) | ![Analytics](screenshots/analytics.png) |
 
 ## Tech Stack
 
