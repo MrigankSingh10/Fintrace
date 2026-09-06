@@ -156,6 +156,7 @@ fun DashboardScreen(
         MonthlySalaryDialog(
             currentSalary = summary.salaryAmount,
             monthName = period.displayName,
+            isIncomeDerived = summary.isIncomeDerived,
             onDismiss = { viewModel.onDismissSalaryDialog() },
             onSave = { amount -> viewModel.saveMonthlySalary(amount) }
         )
@@ -342,16 +343,18 @@ fun HeroFinancialCard(
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
-                            IconButton(
-                                onClick = onEditSalary,
-                                modifier = Modifier.size(24.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Edit,
-                                    contentDescription = "Edit Salary",
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.size(12.dp)
-                                )
+                            if (!summary.isIncomeDerived) {
+                                IconButton(
+                                    onClick = onEditSalary,
+                                    modifier = Modifier.size(24.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Edit,
+                                        contentDescription = "Edit Salary",
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.size(12.dp)
+                                    )
+                                }
                             }
                         }
                         Text(
@@ -359,6 +362,13 @@ fun HeroFinancialCard(
                             style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
                             color = IncomeGreen
                         )
+                        if (summary.isIncomeDerived) {
+                            Text(
+                                text = "From confirmed income",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     }
 
                     // Total Spent (My Share)
@@ -659,6 +669,7 @@ fun RecentTransactionsSection(
         } else {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 transactions.forEach { item ->
+                    val isIncome = item.transaction.type == com.fintrace.app.data.model.TransactionType.INCOME
                     Card(
                         shape = RoundedCornerShape(14.dp),
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -673,18 +684,25 @@ fun RecentTransactionsSection(
                                 .fillMaxWidth()
                                 .padding(12.dp)
                         ) {
-                            CategoryIconBadge(
-                                iconName = item.category?.iconName,
-                                colorHex = item.category?.colorHex,
-                                size = 40.dp,
-                                iconSize = 20.dp
-                            )
+                            if (!isIncome) {
+                                CategoryIconBadge(
+                                    iconName = item.category?.iconName,
+                                    colorHex = item.category?.colorHex,
+                                    size = 40.dp,
+                                    iconSize = 20.dp
+                                )
+                            } else {
+                                Box(
+                                    modifier = Modifier.size(40.dp).clip(CircleShape).background(IncomeGreen.copy(alpha = 0.15f)),
+                                    contentAlignment = Alignment.Center
+                                ) { Text("+", color = IncomeGreen, style = MaterialTheme.typography.titleMedium) }
+                            }
 
                             Spacer(modifier = Modifier.width(12.dp))
 
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
-                                    text = item.transaction.description,
+                                    text = if (isIncome) "Income received" else item.transaction.description,
                                     style = MaterialTheme.typography.titleMedium.copy(fontSize = 14.sp),
                                     color = MaterialTheme.colorScheme.onSurface,
                                     maxLines = 1
@@ -695,15 +713,17 @@ fun RecentTransactionsSection(
                                         style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    PaymentModeBadge(mode = item.paymentMode)
+                                    if (!isIncome) {
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        PaymentModeBadge(mode = item.paymentMode)
+                                    }
                                 }
                             }
 
                             DualAmountDisplay(
                                 originalAmount = item.transaction.originalAmount,
                                 myShareAmount = item.transaction.myShareAmount,
-                                isExpense = item.transaction.type != com.fintrace.app.data.model.TransactionType.INCOME
+                                isExpense = !isIncome
                             )
                         }
                     }

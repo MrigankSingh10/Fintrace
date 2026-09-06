@@ -8,8 +8,8 @@ import java.util.regex.Pattern
 data class ParsedSmsTransaction(
     val amount: Double,
     val merchant: String,
-    val paymentModeType: PaymentModeType,
-    val paymentModeName: String,
+    val paymentModeType: PaymentModeType? = null,
+    val paymentModeName: String? = null,
     val transactionType: TransactionType = TransactionType.EXPENSE,
     val rawBody: String,
     val sender: String? = null,
@@ -130,7 +130,7 @@ object SmsParser {
         }
 
         // 6. Detect Payment Mode (DEBIT, ICICI Coral, ICICI APAY, HDFC Neu)
-        val (modeType, modeName) = detectPaymentMode(smsBody, sender)
+        val (modeType, modeName) = if (isIncome) null to null else detectPaymentMode(smsBody, sender)
 
         return ParsedSmsTransaction(
             amount = amount,

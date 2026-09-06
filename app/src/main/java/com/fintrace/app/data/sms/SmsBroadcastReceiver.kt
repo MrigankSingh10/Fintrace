@@ -50,9 +50,11 @@ class SmsBroadcastReceiver : BroadcastReceiver() {
 
             // Find or match payment mode strictly by name first
             val paymentModes = database.paymentModeDao().getAllPaymentModes()
-            val matchedMode = paymentModes.find { it.name.equals(parsed.paymentModeName, ignoreCase = true) }
-                ?: paymentModes.find { it.name.contains(parsed.paymentModeName, ignoreCase = true) }
-                ?: paymentModes.find { it.type == parsed.paymentModeType }
+            val matchedMode = parsed.paymentModeName?.let { name ->
+                paymentModes.find { it.name.equals(name, ignoreCase = true) }
+                    ?: paymentModes.find { it.name.contains(name, ignoreCase = true) }
+            }
+                ?: parsed.paymentModeType?.let { type -> paymentModes.find { it.type == type } }
                 ?: paymentModes.find { it.name.equals("DEBIT", ignoreCase = true) }
             val paymentModeId = matchedMode?.id ?: paymentModes.firstOrNull()?.id ?: 1L
 

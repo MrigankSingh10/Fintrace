@@ -65,6 +65,9 @@ class FinanceRepositoryImpl(
     override fun getPendingTransactions(): Flow<List<TransactionWithDetails>> =
         transactionDao.getPendingTransactionsFlow()
 
+    override fun getDismissedTransactions(): Flow<List<TransactionWithDetails>> =
+        transactionDao.getDismissedTransactionsFlow()
+
     override fun getPendingCount(): Flow<Int> =
         transactionDao.getPendingCountFlow()
 
@@ -89,6 +92,22 @@ class FinanceRepositoryImpl(
         val confirmed = transaction.copy(status = TransactionStatus.CONFIRMED)
         return transactionDao.saveTransactionWithSplits(confirmed, splits)
     }
+
+    override suspend fun dismissPendingTransaction(
+        transaction: TransactionEntity,
+        splits: List<TransactionSplitEntity>
+    ): Long = transactionDao.saveTransactionWithSplits(
+        transaction.copy(status = TransactionStatus.DISMISSED),
+        splits
+    )
+
+    override suspend fun restoreDismissedTransaction(
+        transaction: TransactionEntity,
+        splits: List<TransactionSplitEntity>
+    ): Long = transactionDao.saveTransactionWithSplits(
+        transaction.copy(status = TransactionStatus.PENDING),
+        splits
+    )
 
     override suspend fun deleteTransaction(transaction: TransactionEntity) =
         transactionDao.deleteTransaction(transaction)
@@ -119,9 +138,13 @@ class FinanceRepositoryImpl(
         val budgetFlow = monthlyBudgetDao.getBudgetForMonthFlow(monthYear)
         val myShareSpentFlow = transactionDao.getTotalMyShareSpentInRangeFlow(startTimestamp, endTimestamp)
         val originalSpentFlow = transactionDao.getTotalOriginalSpentInRangeFlow(startTimestamp, endTimestamp)
+        val confirmedIncomeFlow = transactionDao.getTotalConfirmedIncomeInRangeFlow(startTimestamp, endTimestamp)
 
-        return combine(budgetFlow, myShareSpentFlow, originalSpentFlow) { budget, myShareSpent, originalSpent ->
-            val salary = budget?.salaryAmount ?: 0.0
+        return combine(budgetFlow, myShareSpentFlow, originalSpentFlow, confirmedIncomeFlow) { budget, myShareSpent, originalSpent, confirmedIncome ->
+            // Confirmed income is the source of truth for the month. A manually entered
+            // salary remains a fallback only until the first income is confirmed.
+            val isIncomeDerived = confirmedIncome > 0.0
+            val salary = if (isIncomeDerived) confirmedIncome else budget?.salaryAmount ?: 0.0
             val remaining = if (salary > 0.0) salary - myShareSpent else 0.0
             val savingsRate = if (salary > 0.0) {
                 ((salary - myShareSpent) / salary) * 100.0
@@ -133,7 +156,8 @@ class FinanceRepositoryImpl(
                 totalMyShareSpent = myShareSpent,
                 totalOriginalSpent = originalSpent,
                 remainingBalance = remaining,
-                savingsRatePercentage = savingsRate.coerceAtLeast(0.0)
+                savingsRatePercentage = savingsRate.coerceAtLeast(0.0),
+                isIncomeDerived = isIncomeDerived
             )
         }
     }
@@ -144,14 +168,15 @@ class FinanceRepositoryImpl(
     ): Flow<List<CategorySpendSummary>> {
         val aggregatesFlow = transactionDao.getCategoryAggregatesInRangeFlow(startTimestamp, endTimestamp)
         val totalSpentFlow = transactionDao.getTotalMyShareSpentInRangeFlow(startTimestamp, endTimestamp)
+        val confirmedIncomeFlow = transactionDao.getTotalConfirmedIncomeInRangeFlow(startTimestamp, endTimestamp)
 
         // Extract monthYear from timestamp to get salary for the month
         val dateFormat = java.text.SimpleDateFormat("yyyy-MM", java.util.Locale.getDefault())
         val monthYear = dateFormat.format(java.util.Date(startTimestamp))
         val budgetFlow = monthlyBudgetDao.getBudgetForMonthFlow(monthYear)
 
-        return combine(aggregatesFlow, totalSpentFlow, budgetFlow) { aggregates, totalSpent, budget ->
-            val salary = budget?.salaryAmount ?: 0.0
+        return combine(aggregatesFlow, totalSpentFlow, budgetFlow, confirmedIncomeFlow) { aggregates, _, budget, confirmedIncome ->
+            val salary = if (confirmedIncome > 0.0) confirmedIncome else budget?.salaryAmount ?: 0.0
             aggregates.map { raw ->
                 val percentage = if (salary > 0.0) {
                     (raw.totalMyShare / salary) * 100.0

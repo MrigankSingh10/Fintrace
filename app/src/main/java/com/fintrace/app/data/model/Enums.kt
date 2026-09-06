@@ -8,7 +8,8 @@ enum class TransactionType(val label: String) {
 
 enum class TransactionStatus(val label: String) {
     CONFIRMED("Confirmed"),
-    PENDING("Pending Review")
+    PENDING("Pending Review"),
+    DISMISSED("Dismissed")
 }
 
 enum class PaymentModeType(val label: String) {

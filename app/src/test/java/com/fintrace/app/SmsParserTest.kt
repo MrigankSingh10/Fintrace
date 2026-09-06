@@ -56,8 +56,8 @@ class SmsParserTest {
         assertNotNull(parsed)
         assertEquals(17.0, parsed!!.amount, 0.001)
         assertEquals("Coal India Ltd", parsed.merchant)
-        assertEquals("DEBIT", parsed.paymentModeName)
-        assertEquals(PaymentModeType.BANK_DEBIT, parsed.paymentModeType)
+        assertNull(parsed.paymentModeName)
+        assertNull(parsed.paymentModeType)
         assertEquals(TransactionType.INCOME, parsed.transactionType)
     }
 

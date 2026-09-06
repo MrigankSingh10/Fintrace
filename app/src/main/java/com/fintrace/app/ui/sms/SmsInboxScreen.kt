@@ -66,14 +66,15 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.fintrace.app.data.local.entity.CategoryEntity
-import com.fintrace.app.data.local.entity.PaymentModeEntity
 import com.fintrace.app.data.local.relation.TransactionWithDetails
+import com.fintrace.app.data.model.TransactionType
 import com.fintrace.app.ui.components.CategoryIconBadge
 import com.fintrace.app.ui.components.PaymentModeBadge
 import com.fintrace.app.ui.components.formatCurrency
 import com.fintrace.app.ui.components.parseColorHex
 import com.fintrace.app.ui.theme.AccentPurple
 import com.fintrace.app.ui.theme.ExpenseRed
+import com.fintrace.app.ui.theme.IncomeGreen
 import com.fintrace.app.ui.theme.PrimaryBlue
 import com.fintrace.app.ui.theme.PrimaryEmerald
 import com.fintrace.app.ui.theme.SplitBadgeBg
@@ -89,9 +90,10 @@ fun SmsInboxScreen(
 ) {
     val context = LocalContext.current
     val pendingTransactions by viewModel.pendingTransactions.collectAsState()
+    val dismissedTransactions by viewModel.dismissedTransactions.collectAsState()
     val categories by viewModel.categories.collectAsState()
-    val paymentModes by viewModel.paymentModes.collectAsState()
     val uiState by viewModel.uiState.collectAsState()
+    val displayedTransactions = if (uiState.showingDismissed) dismissedTransactions else pendingTransactions
 
     var hasSmsPermission by remember {
         mutableStateOf(
@@ -205,11 +207,11 @@ fun SmsInboxScreen(
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        text = "Pending Review",
+                        text = if (uiState.showingDismissed) "Dismissed Messages" else "Pending Review",
                         style = MaterialTheme.typography.titleLarge,
                         color = MaterialTheme.colorScheme.onBackground
                     )
-                    if (pendingTransactions.isNotEmpty()) {
+                    if (displayedTransactions.isNotEmpty()) {
                         Spacer(modifier = Modifier.width(8.dp))
                         Box(
                             modifier = Modifier
@@ -218,7 +220,7 @@ fun SmsInboxScreen(
                                 .padding(horizontal = 8.dp, vertical = 2.dp)
                         ) {
                             Text(
-                                text = "${pendingTransactions.size}",
+                                text = "${displayedTransactions.size}",
                                 style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
                                 color = Color.White
                             )
@@ -247,7 +249,19 @@ fun SmsInboxScreen(
                         }
                     }
 
-                    if (pendingTransactions.isNotEmpty()) {
+                    Spacer(modifier = Modifier.width(8.dp))
+                    OutlinedButton(
+                        onClick = { viewModel.onDismissedMessagesToggle() },
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Text(
+                            if (uiState.showingDismissed) "Pending" else "Dismissed",
+                            style = MaterialTheme.typography.labelSmall
+                        )
+                    }
+
+                    if (!uiState.showingDismissed && pendingTransactions.isNotEmpty()) {
                         Spacer(modifier = Modifier.width(8.dp))
                         Button(
                             onClick = { viewModel.onConfirmAllPending() },
@@ -264,7 +278,7 @@ fun SmsInboxScreen(
             }
 
             // Pending List or Empty State
-            if (pendingTransactions.isEmpty()) {
+            if (displayedTransactions.isEmpty()) {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -280,19 +294,23 @@ fun SmsInboxScreen(
                         )
                         Spacer(modifier = Modifier.height(16.dp))
                         Text(
-                            text = "All Caught Up!",
+                            text = if (uiState.showingDismissed) "No Dismissed Messages" else "All Caught Up!",
                             style = MaterialTheme.typography.titleLarge,
                             color = MaterialTheme.colorScheme.onSurface
                         )
                         Spacer(modifier = Modifier.height(6.dp))
                         Text(
-                            text = "New bank SMS alerts will automatically appear here for one-tap confirmation or splitting.",
+                            text = if (uiState.showingDismissed) {
+                                "Messages you dismiss stay here so they are skipped during future scans."
+                            } else {
+                                "New bank SMS alerts will automatically appear here for one-tap confirmation or splitting."
+                            },
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             textAlign = androidx.compose.ui.text.style.TextAlign.Center
                         )
                         Spacer(modifier = Modifier.height(20.dp))
-                        Button(
+                        if (!uiState.showingDismissed) Button(
                             onClick = {
                                 if (hasSmsPermission) {
                                     viewModel.scanInbox(context)
@@ -315,16 +333,24 @@ fun SmsInboxScreen(
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                     modifier = Modifier.fillMaxSize()
                 ) {
-                    items(pendingTransactions, key = { it.transaction.id }) { item ->
-                        PendingSmsCard(
-                            item = item,
-                            categories = categories,
-                            dateFormatter = dateFormatter,
-                            onConfirm = { viewModel.onConfirmTransaction(item) },
-                            onSplitAndEdit = { onNavigateToEditTransaction(item.transaction.id) },
-                            onDismiss = { viewModel.onDismissTransaction(item) },
-                            onSelectCategory = { catId -> viewModel.onQuickCategoryChange(item, catId) }
-                        )
+                    items(displayedTransactions, key = { it.transaction.id }) { item ->
+                        if (uiState.showingDismissed) {
+                            DismissedSmsCard(
+                                item = item,
+                                dateFormatter = dateFormatter,
+                                onRestore = { viewModel.onRestoreTransaction(item) }
+                            )
+                        } else {
+                            PendingSmsCard(
+                                item = item,
+                                categories = categories,
+                                dateFormatter = dateFormatter,
+                                onConfirm = { viewModel.onConfirmTransaction(item) },
+                                onSplitAndEdit = { onNavigateToEditTransaction(item.transaction.id) },
+                                onDismiss = { viewModel.onDismissTransaction(item) },
+                                onSelectCategory = { catId -> viewModel.onQuickCategoryChange(item, catId) }
+                            )
+                        }
                     }
                 }
             }
@@ -348,6 +374,68 @@ fun SmsInboxScreen(
 }
 
 @Composable
+private fun DismissedSmsCard(
+    item: TransactionWithDetails,
+    dateFormatter: SimpleDateFormat,
+    onRestore: () -> Unit
+) {
+    val isIncome = item.transaction.type == TransactionType.INCOME
+    val amountColor = if (isIncome) IncomeGreen else ExpenseRed
+
+    Card(
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = if (isIncome) "Income received" else item.transaction.description,
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        text = dateFormatter.format(Date(item.transaction.timestamp)),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Text(
+                    text = formatCurrency(item.transaction.originalAmount),
+                    style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                    color = amountColor
+                )
+            }
+
+            item.transaction.smsRawBody?.let { sms ->
+                Spacer(modifier = Modifier.height(10.dp))
+                Text(
+                    text = sms,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
+            Button(
+                onClick = onRestore,
+                colors = ButtonDefaults.buttonColors(containerColor = PrimaryEmerald),
+                shape = RoundedCornerShape(10.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Restore to Pending Review")
+            }
+        }
+    }
+}
+
+@Composable
 fun PendingSmsCard(
     item: TransactionWithDetails,
     categories: List<CategoryEntity>,
@@ -359,6 +447,7 @@ fun PendingSmsCard(
     modifier: Modifier = Modifier
 ) {
     val t = item.transaction
+    val isIncome = t.type == TransactionType.INCOME
     var isSmsExpanded by remember { mutableStateOf(false) }
 
     // Derive proper merchant description if current description was a numeric amount or generic placeholder
@@ -391,7 +480,7 @@ fun PendingSmsCard(
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
         modifier = modifier
             .fillMaxWidth()
-            .clickable { onSplitAndEdit() }
+            .clickable(enabled = !isIncome) { onSplitAndEdit() }
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             // Header: Icon, Merchant, Amount, Dismiss
@@ -399,18 +488,30 @@ fun PendingSmsCard(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.fillMaxWidth()
             ) {
-                CategoryIconBadge(
-                    iconName = item.category?.iconName,
-                    colorHex = item.category?.colorHex,
-                    size = 46.dp,
-                    iconSize = 24.dp
-                )
+                if (!isIncome) {
+                    CategoryIconBadge(
+                        iconName = item.category?.iconName,
+                        colorHex = item.category?.colorHex,
+                        size = 46.dp,
+                        iconSize = 24.dp
+                    )
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .size(46.dp)
+                            .clip(CircleShape)
+                            .background(IncomeGreen.copy(alpha = 0.15f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text("+", color = IncomeGreen, style = MaterialTheme.typography.titleLarge)
+                    }
+                }
 
                 Spacer(modifier = Modifier.width(12.dp))
 
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = merchantDisplay,
+                        text = if (isIncome) "Income received" else merchantDisplay,
                         style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                         color = MaterialTheme.colorScheme.onSurface
                     )
@@ -424,7 +525,7 @@ fun PendingSmsCard(
                 Text(
                     text = formatCurrency(t.originalAmount),
                     style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
-                    color = ExpenseRed
+                    color = if (isIncome) IncomeGreen else ExpenseRed
                 )
 
                 IconButton(onClick = onDismiss, modifier = Modifier.size(32.dp)) {
@@ -432,44 +533,42 @@ fun PendingSmsCard(
                 }
             }
 
-            Spacer(modifier = Modifier.height(10.dp))
+            if (!isIncome) {
+                Spacer(modifier = Modifier.height(10.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = "Mode: ",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    PaymentModeBadge(mode = item.paymentMode)
+                }
 
-            // Payment Mode detected
-            Row(verticalAlignment = Alignment.CenterVertically) {
+                Spacer(modifier = Modifier.height(10.dp))
                 Text(
-                    text = "Mode: ",
-                    style = MaterialTheme.typography.bodySmall,
+                    text = "Select Category:",
+                    style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                PaymentModeBadge(mode = item.paymentMode)
-            }
+                Spacer(modifier = Modifier.height(4.dp))
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    items(categories, key = { it.id }) { cat ->
+                        val isSelected = t.categoryId == cat.id
+                        val color = parseColorHex(cat.colorHex)
 
-            Spacer(modifier = Modifier.height(10.dp))
-
-            // Quick Category Assignment Chips
-            Text(
-                text = "Select Category:",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Spacer(modifier = Modifier.height(4.dp))
-            LazyRow(
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                items(categories, key = { it.id }) { cat ->
-                    val isSelected = t.categoryId == cat.id
-                    val color = parseColorHex(cat.colorHex)
-
-                    FilterChip(
-                        selected = isSelected,
-                        onClick = { onSelectCategory(cat.id) },
-                        label = { Text(cat.name, style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp)) },
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = color.copy(alpha = 0.25f),
-                            selectedLabelColor = color
+                        FilterChip(
+                            selected = isSelected,
+                            onClick = { onSelectCategory(cat.id) },
+                            label = { Text(cat.name, style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp)) },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = color.copy(alpha = 0.25f),
+                                selectedLabelColor = color
+                            )
                         )
-                    )
+                    }
                 }
             }
 
@@ -523,14 +622,16 @@ fun PendingSmsCard(
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                OutlinedButton(
-                    onClick = onSplitAndEdit,
-                    shape = RoundedCornerShape(10.dp),
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Icon(imageVector = Icons.Default.CallSplit, contentDescription = null, tint = AccentPurple, modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("Split & Edit", color = AccentPurple, style = MaterialTheme.typography.labelMedium)
+                if (!isIncome) {
+                    OutlinedButton(
+                        onClick = onSplitAndEdit,
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Icon(imageVector = Icons.Default.CallSplit, contentDescription = null, tint = AccentPurple, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Split & Edit", color = AccentPurple, style = MaterialTheme.typography.labelMedium)
+                    }
                 }
 
                 Button(

@@ -25,6 +25,17 @@ class FinanceTrackerApp : Application() {
         )
     }
 
+    fun isDarkTheme(defaultValue: Boolean): Boolean =
+        getSharedPreferences("display_preferences", MODE_PRIVATE)
+            .getBoolean("dark_theme", defaultValue)
+
+    fun setDarkTheme(enabled: Boolean) {
+        getSharedPreferences("display_preferences", MODE_PRIVATE)
+            .edit()
+            .putBoolean("dark_theme", enabled)
+            .apply()
+    }
+
     override fun onCreate() {
         super.onCreate()
         instance = this

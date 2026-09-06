@@ -42,6 +42,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.fintrace.app.data.local.relation.TransactionWithDetails
+import com.fintrace.app.data.model.TransactionType
 import com.fintrace.app.ui.components.CategoryIconBadge
 import com.fintrace.app.ui.components.PaymentModeBadge
 import com.fintrace.app.ui.components.formatCurrency
@@ -65,6 +66,7 @@ fun TransactionDetailSheet(
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val t = item.transaction
+    val isIncome = t.type == TransactionType.INCOME
     val dateFormatter = SimpleDateFormat("EEEE, dd MMMM yyyy, hh:mm a", Locale.getDefault())
 
     ModalBottomSheet(
@@ -79,35 +81,45 @@ fun TransactionDetailSheet(
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 20.dp, vertical = 12.dp)
         ) {
-            // Top Category & Payment Mode Badges
+            // Income uses internal placeholder relationships for database compatibility;
+            // neither category nor payment mode is shown to the user.
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.fillMaxWidth()
             ) {
-                CategoryIconBadge(
-                    iconName = item.category?.iconName,
-                    colorHex = item.category?.colorHex,
-                    size = 52.dp,
-                    iconSize = 28.dp
-                )
+                if (!isIncome) {
+                    CategoryIconBadge(
+                        iconName = item.category?.iconName,
+                        colorHex = item.category?.colorHex,
+                        size = 52.dp,
+                        iconSize = 28.dp
+                    )
+                } else {
+                    Box(
+                        modifier = Modifier.size(52.dp).clip(CircleShape).background(IncomeGreen.copy(alpha = 0.15f)),
+                        contentAlignment = Alignment.Center
+                    ) { Text("+", color = IncomeGreen, style = MaterialTheme.typography.headlineMedium) }
+                }
 
                 Spacer(modifier = Modifier.width(14.dp))
 
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = t.description,
+                        text = if (isIncome) "Income received" else t.description,
                         style = MaterialTheme.typography.titleLarge,
                         color = MaterialTheme.colorScheme.onSurface
                     )
                     Spacer(modifier = Modifier.height(4.dp))
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            text = item.category?.name ?: "Uncategorized",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        PaymentModeBadge(mode = item.paymentMode)
+                    if (!isIncome) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = item.category?.name ?: "Uncategorized",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            PaymentModeBadge(mode = item.paymentMode)
+                        }
                     }
                 }
             }
@@ -126,7 +138,6 @@ fun TransactionDetailSheet(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        val isIncome = t.type == com.fintrace.app.data.model.TransactionType.INCOME
                         val amountColor = if (isIncome) IncomeGreen else ExpenseRed
                         val signPrefix = if (isIncome) "+ " else ""
                         val labelText = if (isIncome) "Amount Credited" else if (item.isSplit) "My Personal Share" else "Amount Spent"
