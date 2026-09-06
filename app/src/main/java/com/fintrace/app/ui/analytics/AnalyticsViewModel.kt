@@ -6,6 +6,7 @@ import android.widget.Toast
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.fintrace.app.data.model.PaymentModeType
+import com.fintrace.app.data.model.TransactionType
 import com.fintrace.app.data.local.relation.CategorySpendSummary
 import com.fintrace.app.data.local.relation.TransactionWithDetails
 import com.fintrace.app.data.repository.FinanceRepository
@@ -82,6 +83,7 @@ class AnalyticsViewModel(
     @OptIn(ExperimentalCoroutinesApi::class)
     val transactions: StateFlow<List<TransactionWithDetails>> = periodTimestamps.flatMapLatest { (start, end) ->
         repository.getTransactionsForRange(start, end)
+            .map { transactions -> transactions.filter { it.transaction.type == TransactionType.EXPENSE } }
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5000),

@@ -33,6 +33,10 @@ interface TransactionDao {
     @Query("SELECT * FROM transactions WHERE status = 'PENDING' ORDER BY timestamp DESC")
     fun getPendingTransactionsFlow(): Flow<List<TransactionWithDetails>>
 
+    @Transaction
+    @Query("SELECT * FROM transactions WHERE status = 'DISMISSED' ORDER BY timestamp DESC")
+    fun getDismissedTransactionsFlow(): Flow<List<TransactionWithDetails>>
+
     @Query("SELECT COUNT(*) FROM transactions WHERE status = 'PENDING'")
     fun getPendingCountFlow(): Flow<Int>
 
@@ -87,6 +91,16 @@ interface TransactionDao {
           AND timestamp <= :endTimestamp
     """)
     fun getTotalOriginalSpentInRangeFlow(startTimestamp: Long, endTimestamp: Long): Flow<Double>
+
+    @Query("""
+        SELECT COALESCE(SUM(my_share_amount), 0.0)
+        FROM transactions
+        WHERE status = 'CONFIRMED'
+          AND type = 'INCOME'
+          AND timestamp >= :startTimestamp
+          AND timestamp <= :endTimestamp
+    """)
+    fun getTotalConfirmedIncomeInRangeFlow(startTimestamp: Long, endTimestamp: Long): Flow<Double>
 
     @Query("""
         SELECT 

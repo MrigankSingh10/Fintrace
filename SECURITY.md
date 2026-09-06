@@ -20,3 +20,8 @@ Please include:
 - Any relevant screenshots or logs
 
 I will review the report and address confirmed vulnerabilities as appropriate.
+
+Use synthetic data and redact financial details from all attachments. This
+personal project does not promise a response deadline or operate a bug-bounty
+program. See [PRIVACY.md](PRIVACY.md) for storage, permissions, backup, and export
+behavior.

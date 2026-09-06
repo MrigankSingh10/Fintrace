@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.fintrace.app.data.local.entity.CategoryEntity
 import com.fintrace.app.data.local.entity.PaymentModeEntity
 import com.fintrace.app.data.local.relation.TransactionWithDetails
+import com.fintrace.app.data.model.TransactionType
 import com.fintrace.app.data.repository.FinanceRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -13,6 +14,16 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.flatMapLatest
+import java.time.YearMonth
+import java.time.ZoneId
+
+internal fun YearMonth.transactionTimestampRange(zone: ZoneId = ZoneId.systemDefault()): LongRange {
+    val start = atDay(1).atStartOfDay(zone).toInstant().toEpochMilli()
+    val nextMonth = plusMonths(1).atDay(1).atStartOfDay(zone).toInstant().toEpochMilli()
+    return start until nextMonth
+}
 
 data class TransactionListFilter(
     val searchQuery: String = "",
@@ -47,19 +58,32 @@ class TransactionListViewModel(
     private val _filter = MutableStateFlow(TransactionListFilter())
     val filter: StateFlow<TransactionListFilter> = _filter.asStateFlow()
 
-    private val allConfirmedTransactions = repository.getConfirmedTransactions()
+    private val _selectedMonth = MutableStateFlow(YearMonth.now())
+    val selectedMonth = _selectedMonth.asStateFlow()
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private val monthlyTransactions = selectedMonth.flatMapLatest { month ->
+        val range = month.transactionTimestampRange()
+        repository.getTransactionsForRange(range.first, range.last)
+    }
+
+    fun onPreviousMonth() { _selectedMonth.value = _selectedMonth.value.minusMonths(1) }
+    fun onNextMonth() { _selectedMonth.value = _selectedMonth.value.plusMonths(1) }
+    fun onResetToCurrentMonth() { _selectedMonth.value = YearMonth.now() }
 
     val filteredTransactions: StateFlow<List<TransactionWithDetails>> = combine(
-        allConfirmedTransactions,
+        monthlyTransactions,
         _filter
     ) { transactions, filter ->
         transactions.filter { item ->
+            val isIncome = item.transaction.type == TransactionType.INCOME
             val matchesQuery = filter.searchQuery.isBlank() ||
                     item.transaction.description.contains(filter.searchQuery, ignoreCase = true) ||
                     (item.transaction.notes?.contains(filter.searchQuery, ignoreCase = true) == true) ||
-                    (item.category?.name?.contains(filter.searchQuery, ignoreCase = true) == true)
+                    (!isIncome && item.category?.name?.contains(filter.searchQuery, ignoreCase = true) == true)
 
-            val matchesCategory = filter.categoryId == null || item.transaction.categoryId == filter.categoryId
+            val matchesCategory = filter.categoryId == null ||
+                    (!isIncome && item.transaction.categoryId == filter.categoryId)
             val matchesPaymentMode = filter.paymentModeId == null || item.transaction.paymentModeId == filter.paymentModeId
 
             matchesQuery && matchesCategory && matchesPaymentMode
@@ -71,13 +95,13 @@ class TransactionListViewModel(
     )
 
     val summary: StateFlow<TransactionListSummary> = filteredTransactions.combine(_filter) { list, _ ->
-        val expenses = list.filter { it.transaction.type != com.fintrace.app.data.model.TransactionType.INCOME }
+        val expenses = list.filter { it.transaction.type == TransactionType.EXPENSE }
         val myShare = expenses.sumOf { it.transaction.myShareAmount }
         val original = expenses.sumOf { it.transaction.originalAmount }
         TransactionListSummary(
             totalMyShareSpent = myShare,
             totalOriginalCharged = original,
-            transactionCount = list.size
+            transactionCount = expenses.size
         )
     }.stateIn(
         scope = viewModelScope,

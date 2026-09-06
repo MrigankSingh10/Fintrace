@@ -51,6 +51,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.fintrace.app.data.local.relation.TransactionWithDetails
+import com.fintrace.app.data.model.TransactionType
 import com.fintrace.app.ui.components.CategoryIconBadge
 import com.fintrace.app.ui.components.DualAmountDisplay
 import com.fintrace.app.ui.components.PaymentModeBadge
@@ -61,6 +62,8 @@ import com.fintrace.app.ui.theme.PrimaryEmerald
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.time.format.DateTimeFormatter
+import com.fintrace.app.ui.dashboard.MonthSelectorBar
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -72,6 +75,8 @@ fun TransactionListScreen(
     val transactions by viewModel.filteredTransactions.collectAsState()
     val summary by viewModel.summary.collectAsState()
     val filter by viewModel.filter.collectAsState()
+    val selectedMonth by viewModel.selectedMonth.collectAsState()
+    val monthLabel = selectedMonth.format(DateTimeFormatter.ofPattern("MMMM yyyy", Locale.getDefault()))
     val categories by viewModel.categories.collectAsState()
     val paymentModes by viewModel.paymentModes.collectAsState()
 
@@ -103,6 +108,14 @@ fun TransactionListScreen(
                 .fillMaxSize()
                 .padding(paddingValues)
         ) {
+            MonthSelectorBar(
+                displayName = monthLabel,
+                onPrevious = viewModel::onPreviousMonth,
+                onNext = viewModel::onNextMonth,
+                onReset = viewModel::onResetToCurrentMonth,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+            )
+
             // Search Bar & Filter Section
             Column(
                 modifier = Modifier
@@ -202,9 +215,9 @@ fun TransactionListScreen(
                         Spacer(modifier = Modifier.height(12.dp))
                         Text(
                             text = if (filter.searchQuery.isNotBlank() || filter.categoryId != null)
-                                "No transactions match your filter."
+                                "No transactions match your filter in $monthLabel."
                             else
-                                "No transactions recorded yet.",
+                                "No transactions recorded in $monthLabel.",
                             style = MaterialTheme.typography.titleMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -263,6 +276,7 @@ fun TransactionRowItem(
     modifier: Modifier = Modifier
 ) {
     val t = item.transaction
+    val isIncome = t.type == TransactionType.INCOME
 
     Card(
         shape = RoundedCornerShape(14.dp),
@@ -278,20 +292,29 @@ fun TransactionRowItem(
                 .fillMaxWidth()
                 .padding(12.dp)
         ) {
-            // Category Icon Badge
-            CategoryIconBadge(
-                iconName = item.category?.iconName,
-                colorHex = item.category?.colorHex,
-                size = 44.dp,
-                iconSize = 22.dp
-            )
+            if (!isIncome) {
+                CategoryIconBadge(
+                    iconName = item.category?.iconName,
+                    colorHex = item.category?.colorHex,
+                    size = 44.dp,
+                    iconSize = 22.dp
+                )
+            } else {
+                Box(
+                    modifier = Modifier
+                        .size(44.dp)
+                        .clip(RoundedCornerShape(22.dp))
+                        .background(PrimaryEmerald.copy(alpha = 0.15f)),
+                    contentAlignment = Alignment.Center
+                ) { Text("+", color = PrimaryEmerald, style = MaterialTheme.typography.titleLarge) }
+            }
 
             Spacer(modifier = Modifier.width(12.dp))
 
             // Merchant / Description & Info
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = t.description,
+                    text = if (isIncome) "Income received" else t.description,
                     style = MaterialTheme.typography.titleMedium.copy(fontSize = 15.sp),
                     color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 1
@@ -303,8 +326,10 @@ fun TransactionRowItem(
                         style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    PaymentModeBadge(mode = item.paymentMode)
+                    if (!isIncome) {
+                        Spacer(modifier = Modifier.width(6.dp))
+                        PaymentModeBadge(mode = item.paymentMode)
+                    }
                 }
             }
 
@@ -314,7 +339,7 @@ fun TransactionRowItem(
             DualAmountDisplay(
                 originalAmount = t.originalAmount,
                 myShareAmount = t.myShareAmount,
-                isExpense = t.type != com.fintrace.app.data.model.TransactionType.INCOME
+                isExpense = !isIncome
             )
         }
     }

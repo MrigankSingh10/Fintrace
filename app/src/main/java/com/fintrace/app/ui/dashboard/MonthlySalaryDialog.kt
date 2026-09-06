@@ -40,6 +40,7 @@ import com.fintrace.app.ui.theme.PrimaryEmerald
 fun MonthlySalaryDialog(
     currentSalary: Double,
     monthName: String,
+    isIncomeDerived: Boolean,
     onDismiss: () -> Unit,
     onSave: (Double) -> Unit
 ) {
@@ -90,49 +91,55 @@ fun MonthlySalaryDialog(
                 Spacer(modifier = Modifier.height(16.dp))
 
                 Text(
-                    text = "Enter the salary / income credited for this month. All spends (your share) will be deducted from this to compute your remaining balance.",
+                    text = if (isIncomeDerived) {
+                        "This month’s salary is calculated from confirmed income. Confirm or delete an income transaction to change it."
+                    } else {
+                        "Enter the salary credited for this month. Confirmed income will replace this manual amount."
+                    },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                OutlinedTextField(
-                    value = salaryText,
-                    onValueChange = {
-                        val filtered = it.filter { ch -> ch.isDigit() || ch == '.' }
-                        salaryText = filtered
-                        if (errorText != null) errorText = null
-                    },
-                    label = { Text("Salary Credited") },
-                    prefix = { Text("₹ ", fontWeight = FontWeight.Bold, color = PrimaryEmerald) },
-                    placeholder = { Text("e.g. 100000") },
-                    textStyle = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                    singleLine = true,
-                    isError = errorText != null,
-                    supportingText = errorText?.let { { Text(it, color = MaterialTheme.colorScheme.error) } },
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier.fillMaxWidth()
-                )
+                if (isIncomeDerived) {
+                    Text(
+                        text = "Confirmed income: ₹ ${String.format("%.0f", currentSalary)}",
+                        style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
+                        color = PrimaryEmerald
+                    )
+                } else {
+                    OutlinedTextField(
+                        value = salaryText,
+                        onValueChange = {
+                            val filtered = it.filter { ch -> ch.isDigit() || ch == '.' }
+                            salaryText = filtered
+                            if (errorText != null) errorText = null
+                        },
+                        label = { Text("Salary Credited") },
+                        prefix = { Text("₹ ", fontWeight = FontWeight.Bold, color = PrimaryEmerald) },
+                        placeholder = { Text("e.g. 100000") },
+                        textStyle = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                        singleLine = true,
+                        isError = errorText != null,
+                        supportingText = errorText?.let { { Text(it, color = MaterialTheme.colorScheme.error) } },
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    )
 
-                Spacer(modifier = Modifier.height(12.dp))
-
-                // Quick Increment Presets
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    listOf(50000.0 to "+50k", 100000.0 to "100k", 150000.0 to "150k").forEach { (amount, label) ->
-                        OutlinedButton(
-                            onClick = {
-                                salaryText = String.format("%.0f", amount)
-                            },
-                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                            shape = RoundedCornerShape(8.dp),
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Text(text = label, style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp))
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        listOf(50000.0 to "+50k", 100000.0 to "100k", 150000.0 to "150k").forEach { (amount, label) ->
+                            OutlinedButton(
+                                onClick = { salaryText = String.format("%.0f", amount) },
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier.weight(1f)
+                            ) { Text(text = label, style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp)) }
                         }
                     }
                 }
@@ -153,6 +160,10 @@ fun MonthlySalaryDialog(
                     Spacer(modifier = Modifier.width(12.dp))
                     Button(
                         onClick = {
+                            if (isIncomeDerived) {
+                                onDismiss()
+                                return@Button
+                            }
                             val parsed = salaryText.toDoubleOrNull()
                             if (parsed == null || parsed < 0.0) {
                                 errorText = "Please enter a valid amount"
@@ -164,7 +175,7 @@ fun MonthlySalaryDialog(
                         modifier = Modifier.weight(1f),
                         shape = RoundedCornerShape(10.dp)
                     ) {
-                        Text("Save")
+                        Text(if (isIncomeDerived) "Close" else "Save")
                     }
                 }
             }

@@ -430,6 +430,7 @@ fun AddEditTransactionScreen(
 
             Spacer(modifier = Modifier.height(14.dp))
 
+            if (uiState.type == TransactionType.EXPENSE) {
             // Category Selector Card
             Card(
                 shape = RoundedCornerShape(16.dp),
@@ -533,6 +534,8 @@ fun AddEditTransactionScreen(
                         }
                     }
                 }
+            }
+
             }
 
             Spacer(modifier = Modifier.height(14.dp))

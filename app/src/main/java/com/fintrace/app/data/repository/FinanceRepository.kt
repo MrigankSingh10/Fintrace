@@ -29,11 +29,14 @@ interface FinanceRepository {
     // Transactions
     fun getConfirmedTransactions(): Flow<List<TransactionWithDetails>>
     fun getPendingTransactions(): Flow<List<TransactionWithDetails>>
+    fun getDismissedTransactions(): Flow<List<TransactionWithDetails>>
     fun getPendingCount(): Flow<Int>
     fun getTransactionsForRange(startTimestamp: Long, endTimestamp: Long): Flow<List<TransactionWithDetails>>
     suspend fun getTransactionById(id: Long): TransactionWithDetails?
     suspend fun saveTransaction(transaction: TransactionEntity, splits: List<TransactionSplitEntity> = emptyList()): Long
     suspend fun confirmPendingTransaction(transaction: TransactionEntity, splits: List<TransactionSplitEntity> = emptyList()): Long
+    suspend fun dismissPendingTransaction(transaction: TransactionEntity, splits: List<TransactionSplitEntity> = emptyList()): Long
+    suspend fun restoreDismissedTransaction(transaction: TransactionEntity, splits: List<TransactionSplitEntity> = emptyList()): Long
     suspend fun deleteTransaction(transaction: TransactionEntity)
     suspend fun isSmsAlreadyProcessed(smsBody: String): Boolean
 

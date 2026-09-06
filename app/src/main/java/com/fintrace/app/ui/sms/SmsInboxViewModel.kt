@@ -22,7 +22,8 @@ data class SmsInboxUiState(
     val isScanning: Boolean = false,
     val scanResult: SmsScanResult? = null,
     val showPermissionRationale: Boolean = false,
-    val statusMessage: String? = null
+    val statusMessage: String? = null,
+    val showingDismissed: Boolean = false
 )
 
 class SmsInboxViewModel(
@@ -31,6 +32,13 @@ class SmsInboxViewModel(
 ) : ViewModel() {
 
     val pendingTransactions: StateFlow<List<TransactionWithDetails>> = repository.getPendingTransactions()
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = emptyList()
+        )
+
+    val dismissedTransactions: StateFlow<List<TransactionWithDetails>> = repository.getDismissedTransactions()
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5000),
@@ -114,8 +122,18 @@ class SmsInboxViewModel(
 
     fun onDismissTransaction(item: TransactionWithDetails) {
         viewModelScope.launch {
-            repository.deleteTransaction(item.transaction)
+            repository.dismissPendingTransaction(item.transaction, item.splits)
         }
+    }
+
+    fun onRestoreTransaction(item: TransactionWithDetails) {
+        viewModelScope.launch {
+            repository.restoreDismissedTransaction(item.transaction, item.splits)
+        }
+    }
+
+    fun onDismissedMessagesToggle() {
+        _uiState.value = _uiState.value.copy(showingDismissed = !_uiState.value.showingDismissed)
     }
 
     fun onShowPermissionRationale() {

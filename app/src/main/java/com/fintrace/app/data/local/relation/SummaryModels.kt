@@ -17,5 +17,6 @@ data class MonthlyFinancialSummary(
     val totalMyShareSpent: Double,
     val totalOriginalSpent: Double,
     val remainingBalance: Double,
-    val savingsRatePercentage: Double = 0.0
+    val savingsRatePercentage: Double = 0.0,
+    val isIncomeDerived: Boolean = false
 )
