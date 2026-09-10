@@ -2,9 +2,11 @@ package com.fintrace.app.ui.dashboard
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.fintrace.app.data.local.entity.MonthlyBudgetSalaryEntity
 import com.fintrace.app.data.local.relation.CategorySpendSummary
 import com.fintrace.app.data.local.relation.MonthlyFinancialSummary
 import com.fintrace.app.data.local.relation.TransactionWithDetails
+import com.fintrace.app.data.model.SalaryMode
 import com.fintrace.app.data.repository.FinanceRepository
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -51,6 +53,15 @@ class DashboardViewModel(
 
     private val _isSalaryDialogOpen = MutableStateFlow(false)
     val isSalaryDialogOpen: StateFlow<Boolean> = _isSalaryDialogOpen.asStateFlow()
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val monthlyBudget: StateFlow<MonthlyBudgetSalaryEntity?> = selectedPeriod.flatMapLatest { period ->
+        repository.getBudgetForMonth(period.monthYearKey)
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = null
+    )
 
     @OptIn(ExperimentalCoroutinesApi::class)
     val monthlySummary: StateFlow<MonthlyFinancialSummary> = selectedPeriod.flatMapLatest { period ->
@@ -114,13 +125,23 @@ class DashboardViewModel(
         _isSalaryDialogOpen.value = false
     }
 
-    fun saveMonthlySalary(amount: Double) {
+    fun saveMonthlySalary(amount: Double, salaryMode: SalaryMode = SalaryMode.OVERRIDE) {
         viewModelScope.launch {
             val period = selectedPeriod.value
+            val currentSalary = monthlySummary.value.salaryAmount
+            val total = when (salaryMode) {
+                SalaryMode.OVERRIDE -> amount
+                SalaryMode.ADD_TO_SMS -> currentSalary + amount
+            }
             repository.setMonthlySalary(
                 monthYear = period.monthYearKey,
-                salary = amount,
-                notes = "Salary credited for ${period.displayName}"
+                salary = total,
+                notes = if (salaryMode == SalaryMode.ADD_TO_SMS) {
+                    "Added ${String.format("%.0f", amount)} to the salary of ${period.displayName}"
+                } else {
+                    "Manual salary for ${period.displayName}"
+                },
+                salaryMode = salaryMode
             )
             onDismissSalaryDialog()
         }

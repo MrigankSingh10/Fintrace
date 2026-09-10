@@ -6,10 +6,12 @@ import androidx.lifecycle.viewModelScope
 import com.fintrace.app.data.local.AppDatabase
 import com.fintrace.app.data.local.entity.CategoryEntity
 import com.fintrace.app.data.local.entity.PaymentModeEntity
+import com.fintrace.app.data.local.entity.TransactionEntity
 import com.fintrace.app.data.local.relation.TransactionWithDetails
-import com.fintrace.app.data.model.TransactionStatus
+import com.fintrace.app.data.model.PaymentModeType
 import com.fintrace.app.data.repository.FinanceRepository
 import com.fintrace.app.data.sms.SmsInboxScanner
+import com.fintrace.app.data.sms.SmsParser
 import com.fintrace.app.data.sms.SmsScanResult
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -59,6 +61,13 @@ class SmsInboxViewModel(
             initialValue = emptyList()
         )
 
+    val cardMappings: StateFlow<List<com.fintrace.app.data.local.entity.CardMappingEntity>> = repository.getAllCardMappings()
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = emptyList()
+        )
+
     private val _uiState = MutableStateFlow(SmsInboxUiState())
     val uiState: StateFlow<SmsInboxUiState> = _uiState.asStateFlow()
 
@@ -94,16 +103,53 @@ class SmsInboxViewModel(
 
     fun onConfirmTransaction(item: TransactionWithDetails) {
         viewModelScope.launch {
-            repository.confirmPendingTransaction(item.transaction, item.splits)
+            repository.confirmPendingTransaction(resolvedForConfirm(item), item.splits)
         }
     }
 
     fun onConfirmAllPending() {
         viewModelScope.launch {
             pendingTransactions.value.forEach { item ->
-                repository.confirmPendingTransaction(item.transaction, item.splits)
+                repository.confirmPendingTransaction(resolvedForConfirm(item), item.splits)
             }
         }
+    }
+
+    /**
+     * Re-parses the stored SMS while confirming and persists live-parsed fields so confirmed
+     * rows and analytics are consistent with the current parser. Card parses are never stored
+     * as DEBIT: a mapping wins, otherwise a CREDIT_CARD-typed mode is ensured.
+     */
+    private suspend fun resolvedForConfirm(item: TransactionWithDetails): TransactionEntity {
+        val t = item.transaction
+        val body = t.smsRawBody
+        if (body.isNullOrBlank()) return t
+        val parsed = SmsParser.parse(body, t.smsSender, t.timestamp) ?: return t
+
+        var updated = t.copy(
+            description = if (isGenericDescription(t.description)) parsed.merchant else t.description,
+            parseConfidence = parsed.parseConfidence,
+            cardLastFour = parsed.cardLastFour ?: t.cardLastFour,
+            currency = parsed.currencyCode
+        )
+
+        if (parsed.paymentModeType == PaymentModeType.CREDIT_CARD) {
+            val mapping = parsed.cardLastFour?.let { repository.getCardMappingByLastFour(it) }
+            updated = updated.copy(paymentModeId = mapping?.paymentModeId ?: repository.ensureCreditCardMode())
+        }
+        return updated
+    }
+
+    private fun isGenericDescription(desc: String): Boolean {
+        val trimmed = desc.trim()
+        if (trimmed.isBlank()) return true
+        if (trimmed.matches(Regex("^(?:INR|RS\\.?|₹)?\\s*[0-9]+(?:,[0-9]+)*(?:\\.[0-9]+)?\\s*$", RegexOption.IGNORE_CASE))) return true
+        if (trimmed.matches(Regex("^[0-9\\.,\\s\\-_]+$"))) return true
+        return trimmed.equals("ICICI Bank Credit", ignoreCase = true) ||
+                trimmed.equals("HDFC Bank Credit", ignoreCase = true) ||
+                trimmed.equals("SBI Credit", ignoreCase = true) ||
+                trimmed.equals("Bank / Card Expense", ignoreCase = true) ||
+                trimmed.equals("Bank Credit / Dividend", ignoreCase = true)
     }
 
     fun onQuickCategoryChange(item: TransactionWithDetails, categoryId: Long) {
@@ -117,6 +163,22 @@ class SmsInboxViewModel(
         viewModelScope.launch {
             val updated = item.transaction.copy(paymentModeId = paymentModeId)
             repository.saveTransaction(updated, item.splits)
+        }
+    }
+
+    fun onCreateCardMapping(cardLastFour: String, paymentModeId: Long, item: TransactionWithDetails? = null) {
+        viewModelScope.launch {
+            repository.addCardMapping(
+                com.fintrace.app.data.local.entity.CardMappingEntity(
+                    cardLastFour = cardLastFour,
+                    paymentModeId = paymentModeId
+                )
+            )
+            // Update transaction payment mode if provided
+            item?.let {
+                val updated = it.transaction.copy(paymentModeId = paymentModeId)
+                repository.saveTransaction(updated, it.splits)
+            }
         }
     }
 

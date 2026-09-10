@@ -78,6 +78,7 @@ import com.fintrace.app.data.model.PaymentModeType
 import com.fintrace.app.data.model.TransactionType
 import com.fintrace.app.ui.components.CategoryIconBadge
 import com.fintrace.app.ui.components.IconMapper
+import com.fintrace.app.ui.components.currencySymbol
 import com.fintrace.app.ui.components.formatCurrency
 import com.fintrace.app.ui.components.getPaymentModeIcon
 import com.fintrace.app.ui.components.parseColorHex
@@ -223,7 +224,7 @@ fun AddEditTransactionScreen(
                         onValueChange = { viewModel.onOriginalAmountChange(it) },
                         prefix = {
                             Text(
-                                text = "₹ ",
+                                text = "${currencySymbol(uiState.currency)} ",
                                 style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Bold),
                                 color = MaterialTheme.colorScheme.onSurface
                             )
@@ -301,7 +302,7 @@ fun AddEditTransactionScreen(
                                 value = uiState.myShareAmount,
                                 onValueChange = { viewModel.onMyShareAmountChange(it) },
                                 label = { Text("My Share (Your net expense)") },
-                                prefix = { Text("₹ ", fontWeight = FontWeight.Bold, color = ExpenseRed) },
+                                prefix = { Text("${currencySymbol(uiState.currency)} ", fontWeight = FontWeight.Bold, color = ExpenseRed) },
                                 placeholder = { Text("0.00") },
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                                 singleLine = true,
@@ -323,9 +324,9 @@ fun AddEditTransactionScreen(
                             ) {
                                 Text(
                                     text = if (isExceeded) {
-                                        "⚠️ Friends' shares (${formatCurrency(othersSum)}) exceed total bill (${formatCurrency(origAmt)})"
+                                        "⚠️ Friends' shares (${formatCurrency(othersSum, uiState.currency)}) exceed total bill (${formatCurrency(origAmt, uiState.currency)})"
                                     } else {
-                                        "💡 Total: ${formatCurrency(origAmt)} • Friends: ${formatCurrency(othersSum)} • Your share: ${formatCurrency(myShareAmt)}"
+                                        "💡 Total: ${formatCurrency(origAmt, uiState.currency)} • Friends: ${formatCurrency(othersSum, uiState.currency)} • Your share: ${formatCurrency(myShareAmt, uiState.currency)}"
                                     },
                                     style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
                                     color = if (isExceeded) ExpenseRed else SplitBadgeText
@@ -399,7 +400,7 @@ fun AddEditTransactionScreen(
                                     OutlinedTextField(
                                         value = participant.shareAmount,
                                         onValueChange = { newShare -> viewModel.onUpdateParticipant(index, participant.name, newShare) },
-                                        placeholder = { Text("₹ Amount") },
+                                        placeholder = { Text("${currencySymbol(uiState.currency)} Amount") },
                                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                                         singleLine = true,
                                         modifier = Modifier.weight(1f),

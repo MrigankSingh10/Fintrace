@@ -1,9 +1,11 @@
 package com.fintrace.app.data.repository
 
+import com.fintrace.app.data.local.dao.CardMappingDao
 import com.fintrace.app.data.local.dao.CategoryDao
 import com.fintrace.app.data.local.dao.MonthlyBudgetDao
 import com.fintrace.app.data.local.dao.PaymentModeDao
 import com.fintrace.app.data.local.dao.TransactionDao
+import com.fintrace.app.data.local.entity.CardMappingEntity
 import com.fintrace.app.data.local.entity.CategoryEntity
 import com.fintrace.app.data.local.entity.MonthlyBudgetSalaryEntity
 import com.fintrace.app.data.local.entity.PaymentModeEntity
@@ -12,6 +14,7 @@ import com.fintrace.app.data.local.entity.TransactionSplitEntity
 import com.fintrace.app.data.local.relation.CategorySpendSummary
 import com.fintrace.app.data.local.relation.MonthlyFinancialSummary
 import com.fintrace.app.data.local.relation.TransactionWithDetails
+import com.fintrace.app.data.model.SalaryMode
 import com.fintrace.app.data.model.TransactionStatus
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
@@ -21,8 +24,25 @@ class FinanceRepositoryImpl(
     private val categoryDao: CategoryDao,
     private val paymentModeDao: PaymentModeDao,
     private val transactionDao: TransactionDao,
-    private val monthlyBudgetDao: MonthlyBudgetDao
+    private val monthlyBudgetDao: MonthlyBudgetDao,
+    private val cardMappingDao: CardMappingDao
 ) : FinanceRepository {
+
+    // --- Card Mappings ---
+    override fun getAllCardMappings(): Flow<List<CardMappingEntity>> =
+        cardMappingDao.getAllCardMappingsFlow()
+
+    override suspend fun addCardMapping(cardMapping: CardMappingEntity): Long =
+        cardMappingDao.insertCardMapping(cardMapping)
+
+    override suspend fun updateCardMapping(cardMapping: CardMappingEntity) =
+        cardMappingDao.updateCardMapping(cardMapping)
+
+    override suspend fun deleteCardMapping(cardMapping: CardMappingEntity) =
+        cardMappingDao.deleteCardMapping(cardMapping)
+
+    override suspend fun getCardMappingByLastFour(lastFour: String): CardMappingEntity? =
+        cardMappingDao.getCardMappingByLastFour(lastFour)
 
     // --- Categories ---
     override fun getAllCategories(): Flow<List<CategoryEntity>> =
@@ -51,11 +71,33 @@ class FinanceRepositoryImpl(
     override suspend fun updatePaymentMode(mode: PaymentModeEntity) =
         paymentModeDao.updatePaymentMode(mode)
 
-    override suspend fun deletePaymentMode(mode: PaymentModeEntity) =
+    override suspend fun deletePaymentMode(mode: PaymentModeEntity) {
+        // The seeded DEBIT row (id 1) is required as the ON DELETE SET DEFAULT fallback target.
+        if (mode.id == 1L) return
         paymentModeDao.deletePaymentMode(mode)
+    }
 
     override suspend fun getPaymentModeById(id: Long): PaymentModeEntity? =
         paymentModeDao.getPaymentModeById(id)
+
+    /**
+     * Guarantees a CREDIT_CARD-typed payment mode always exists. If the user deleted every
+     * credit-card mode, a generic "Credit Card (Unmapped)" mode is created on demand so that
+     * card transactions never silently fall back to DEBIT and the mapping prompt stays available.
+     */
+    override suspend fun ensureCreditCardMode(): Long {
+        paymentModeDao.getAllPaymentModes().firstOrNull { it.type == com.fintrace.app.data.model.PaymentModeType.CREDIT_CARD }
+            ?.let { return it.id }
+        return paymentModeDao.insertPaymentMode(
+            PaymentModeEntity(
+                id = 0,
+                name = "Credit Card (Unmapped)",
+                type = com.fintrace.app.data.model.PaymentModeType.CREDIT_CARD,
+                iconName = "CreditCard",
+                isDefault = false
+            )
+        )
+    }
 
 
     // --- Transactions ---
@@ -120,11 +162,12 @@ class FinanceRepositoryImpl(
     override fun getBudgetForMonth(monthYear: String): Flow<MonthlyBudgetSalaryEntity?> =
         monthlyBudgetDao.getBudgetForMonthFlow(monthYear)
 
-    override suspend fun setMonthlySalary(monthYear: String, salary: Double, notes: String?) {
+    override suspend fun setMonthlySalary(monthYear: String, salary: Double, notes: String?, salaryMode: SalaryMode) {
         monthlyBudgetDao.upsertBudget(
             MonthlyBudgetSalaryEntity(
                 monthYear = monthYear,
                 salaryAmount = salary,
+                salaryMode = salaryMode,
                 notes = notes
             )
         )
@@ -141,10 +184,11 @@ class FinanceRepositoryImpl(
         val confirmedIncomeFlow = transactionDao.getTotalConfirmedIncomeInRangeFlow(startTimestamp, endTimestamp)
 
         return combine(budgetFlow, myShareSpentFlow, originalSpentFlow, confirmedIncomeFlow) { budget, myShareSpent, originalSpent, confirmedIncome ->
-            // Confirmed income is the source of truth for the month. A manually entered
-            // salary remains a fallback only until the first income is confirmed.
+            // A saved budget row wins for the month: it stores the final salary total for
+            // both OVERRIDE and ADD_TO_SMS modes (the ADD amount is already combined into it).
+            // Without a manual row, fall back to the confirmed SMS income.
             val isIncomeDerived = confirmedIncome > 0.0
-            val salary = if (isIncomeDerived) confirmedIncome else budget?.salaryAmount ?: 0.0
+            val salary = resolveMonthlySalary(confirmedIncome, budget)
             val remaining = if (salary > 0.0) salary - myShareSpent else 0.0
             val savingsRate = if (salary > 0.0) {
                 ((salary - myShareSpent) / salary) * 100.0
@@ -157,10 +201,18 @@ class FinanceRepositoryImpl(
                 totalOriginalSpent = originalSpent,
                 remainingBalance = remaining,
                 savingsRatePercentage = savingsRate.coerceAtLeast(0.0),
-                isIncomeDerived = isIncomeDerived
+                isIncomeDerived = isIncomeDerived,
+                confirmedIncome = confirmedIncome
             )
         }
     }
+
+    private fun resolveMonthlySalary(
+        confirmedIncome: Double,
+        budget: MonthlyBudgetSalaryEntity?
+    ): Double =
+        if (budget != null) budget.salaryAmount
+        else confirmedIncome
 
     override fun getCategoryBreakdown(
         startTimestamp: Long,
@@ -176,7 +228,7 @@ class FinanceRepositoryImpl(
         val budgetFlow = monthlyBudgetDao.getBudgetForMonthFlow(monthYear)
 
         return combine(aggregatesFlow, totalSpentFlow, budgetFlow, confirmedIncomeFlow) { aggregates, _, budget, confirmedIncome ->
-            val salary = if (confirmedIncome > 0.0) confirmedIncome else budget?.salaryAmount ?: 0.0
+            val salary = resolveMonthlySalary(confirmedIncome, budget)
             aggregates.map { raw ->
                 val percentage = if (salary > 0.0) {
                     (raw.totalMyShare / salary) * 100.0

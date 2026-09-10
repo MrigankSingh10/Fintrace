@@ -339,7 +339,8 @@ fun TransactionRowItem(
             DualAmountDisplay(
                 originalAmount = t.originalAmount,
                 myShareAmount = t.myShareAmount,
-                isExpense = !isIncome
+                isExpense = !isIncome,
+                currencyCode = t.currency
             )
         }
     }

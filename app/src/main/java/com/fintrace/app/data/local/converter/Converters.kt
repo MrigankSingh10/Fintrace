@@ -26,4 +26,11 @@ class Converters {
     @TypeConverter
     fun toPaymentModeType(value: String?): PaymentModeType =
         value?.let { runCatching { PaymentModeType.valueOf(it) }.getOrNull() } ?: PaymentModeType.BANK_DEBIT
+
+    @TypeConverter
+    fun fromParseConfidence(value: com.fintrace.app.data.model.ParseConfidence?): String? = value?.name
+
+    @TypeConverter
+    fun toParseConfidence(value: String?): com.fintrace.app.data.model.ParseConfidence? =
+        value?.let { runCatching { com.fintrace.app.data.model.ParseConfidence.valueOf(it) }.getOrNull() }
 }

@@ -19,3 +19,8 @@ enum class PaymentModeType(val label: String) {
     CASH("Cash"),
     OTHER("Other")
 }
+
+enum class ParseConfidence(val label: String) {
+    FULL("Full"),
+    RAW("Raw / Partial")
+}

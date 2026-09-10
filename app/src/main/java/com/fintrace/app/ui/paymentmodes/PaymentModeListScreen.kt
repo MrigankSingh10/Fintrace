@@ -48,6 +48,8 @@ import com.fintrace.app.ui.components.PaymentModeBadge
 import com.fintrace.app.ui.theme.ExpenseRed
 import com.fintrace.app.ui.theme.PrimaryEmerald
 
+import androidx.compose.material.icons.filled.CreditCard
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PaymentModeListScreen(
@@ -55,8 +57,10 @@ fun PaymentModeListScreen(
     onNavigateBack: () -> Unit
 ) {
     val paymentModes by viewModel.paymentModes.collectAsState()
+    val cardMappings by viewModel.cardMappings.collectAsState()
     val uiState by viewModel.uiState.collectAsState()
     var modeToDelete by remember { mutableStateOf<PaymentModeEntity?>(null) }
+    var protectedMode by remember { mutableStateOf<PaymentModeEntity?>(null) }
 
     Scaffold(
         topBar = {
@@ -122,13 +126,83 @@ fun PaymentModeListScreen(
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                     modifier = Modifier.fillMaxSize()
                 ) {
-                    items(paymentModes, key = { it.id }) { mode ->
+                    items(paymentModes, key = { "pm-${it.id}" }) { mode ->
                         PaymentModeListItem(
                             mode = mode,
                             onEdit = { viewModel.onEditModeClicked(mode) },
-                            onDelete = { modeToDelete = mode }
+                            onDelete = {
+                                if (mode.id == 1L) {
+                                    protectedMode = mode
+                                } else {
+                                    modeToDelete = mode
+                                }
+                            }
                         )
                     }
+
+                    // Card Mappings Section
+                    if (cardMappings.isNotEmpty()) {
+                        item {
+                            Spacer(modifier = Modifier.height(16.dp))
+                            Text(
+                                text = "Auto-detected Card Mappings",
+                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Bold),
+                                color = MaterialTheme.colorScheme.onBackground
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "Incoming SMS with these card numbers automatically map to the assigned payment mode.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+
+                        items(cardMappings, key = { "cm-${it.id}" }) { mapping ->
+                            val linkedMode = paymentModes.find { it.id == mapping.paymentModeId }
+                            Card(
+                                shape = RoundedCornerShape(12.dp),
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                                elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(14.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.CreditCard,
+                                        contentDescription = null,
+                                        tint = PrimaryEmerald,
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(12.dp))
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = "Card ending ••${mapping.cardLastFour}",
+                                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold),
+                                            color = MaterialTheme.colorScheme.onSurface
+                                        )
+                                        Text(
+                                            text = "Mapped to: ${linkedMode?.name ?: "Unknown"}",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                    IconButton(onClick = { viewModel.deleteCardMapping(mapping) }) {
+                                        Icon(
+                                            imageVector = Icons.Default.DeleteOutline,
+                                            contentDescription = "Delete mapping",
+                                            tint = ExpenseRed.copy(alpha = 0.8f),
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     item {
                         Spacer(modifier = Modifier.height(80.dp))
                     }
@@ -165,6 +239,30 @@ fun PaymentModeListScreen(
                     dismissButton = {
                         TextButton(onClick = { modeToDelete = null }) {
                             Text("Cancel")
+                        }
+                    }
+                )
+            }
+
+            // Protected mode (seeded DEBIT) cannot be deleted — only edited
+            protectedMode?.let { mode ->
+                AlertDialog(
+                    onDismissRequest = { protectedMode = null },
+                    title = { Text("${mode.name} cannot be deleted") },
+                    text = { Text("This is a required payment mode and can only be edited.") },
+                    confirmButton = {
+                        TextButton(
+                            onClick = {
+                                protectedMode = null
+                                viewModel.onEditModeClicked(mode)
+                            }
+                        ) {
+                            Text("Edit")
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { protectedMode = null }) {
+                            Text("Close")
                         }
                     }
                 )

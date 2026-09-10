@@ -7,6 +7,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,12 +23,14 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CallSplit
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.CreditCard
 import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
@@ -92,8 +95,12 @@ fun SmsInboxScreen(
     val pendingTransactions by viewModel.pendingTransactions.collectAsState()
     val dismissedTransactions by viewModel.dismissedTransactions.collectAsState()
     val categories by viewModel.categories.collectAsState()
+    val paymentModes by viewModel.paymentModes.collectAsState()
+    val cardMappings by viewModel.cardMappings.collectAsState()
     val uiState by viewModel.uiState.collectAsState()
     val displayedTransactions = if (uiState.showingDismissed) dismissedTransactions else pendingTransactions
+
+    var cardToMap by remember { mutableStateOf<Pair<String, TransactionWithDetails>?>(null) }
 
     var hasSmsPermission by remember {
         mutableStateOf(
@@ -200,7 +207,6 @@ fun SmsInboxScreen(
             // Subheader & Action Bar
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween,
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp, vertical = 10.dp)
@@ -227,52 +233,57 @@ fun SmsInboxScreen(
                         }
                     }
                 }
+            }
 
-                Row {
-                    if (uiState.isScanning) {
-                        CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.5.dp, color = PrimaryEmerald)
-                    } else {
-                        OutlinedButton(
-                            onClick = {
-                                if (hasSmsPermission) {
-                                    viewModel.scanInbox(context)
-                                } else {
-                                    viewModel.onShowPermissionRationale()
-                                }
-                            },
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                            shape = RoundedCornerShape(8.dp)
-                        ) {
-                            Icon(imageVector = Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(14.dp))
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("Scan SMS", style = MaterialTheme.typography.labelSmall)
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.width(8.dp))
+            // Action buttons on their own horizontally-scrollable row so they never crowd the title
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
+                    .padding(horizontal = 16.dp, vertical = 2.dp)
+            ) {
+                if (uiState.isScanning) {
+                    CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.5.dp, color = PrimaryEmerald)
+                } else {
                     OutlinedButton(
-                        onClick = { viewModel.onDismissedMessagesToggle() },
+                        onClick = {
+                            if (hasSmsPermission) {
+                                viewModel.scanInbox(context)
+                            } else {
+                                viewModel.onShowPermissionRationale()
+                            }
+                        },
                         contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
                         shape = RoundedCornerShape(8.dp)
                     ) {
-                        Text(
-                            if (uiState.showingDismissed) "Pending" else "Dismissed",
-                            style = MaterialTheme.typography.labelSmall
-                        )
+                        Icon(imageVector = Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(14.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Scan SMS", style = MaterialTheme.typography.labelSmall)
                     }
+                }
 
-                    if (!uiState.showingDismissed && pendingTransactions.isNotEmpty()) {
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Button(
-                            onClick = { viewModel.onConfirmAllPending() },
-                            colors = ButtonDefaults.buttonColors(containerColor = PrimaryEmerald),
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                            shape = RoundedCornerShape(8.dp)
-                        ) {
-                            Icon(imageVector = Icons.Default.DoneAll, contentDescription = null, modifier = Modifier.size(14.dp))
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("Confirm All", style = MaterialTheme.typography.labelSmall)
-                        }
+                OutlinedButton(
+                    onClick = { viewModel.onDismissedMessagesToggle() },
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Text(
+                        if (uiState.showingDismissed) "Pending" else "Dismissed",
+                        style = MaterialTheme.typography.labelSmall
+                    )
+                }
+
+                if (!uiState.showingDismissed && pendingTransactions.isNotEmpty()) {
+                    Button(
+                        onClick = { viewModel.onConfirmAllPending() },
+                        colors = ButtonDefaults.buttonColors(containerColor = PrimaryEmerald),
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Icon(imageVector = Icons.Default.DoneAll, contentDescription = null, modifier = Modifier.size(14.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Confirm All", style = MaterialTheme.typography.labelSmall)
                     }
                 }
             }
@@ -344,11 +355,13 @@ fun SmsInboxScreen(
                             PendingSmsCard(
                                 item = item,
                                 categories = categories,
+                                cardMappings = cardMappings,
                                 dateFormatter = dateFormatter,
                                 onConfirm = { viewModel.onConfirmTransaction(item) },
                                 onSplitAndEdit = { onNavigateToEditTransaction(item.transaction.id) },
                                 onDismiss = { viewModel.onDismissTransaction(item) },
-                                onSelectCategory = { catId -> viewModel.onQuickCategoryChange(item, catId) }
+                                onSelectCategory = { catId -> viewModel.onQuickCategoryChange(item, catId) },
+                                onMapCard = { lastFour -> cardToMap = lastFour to item }
                             )
                         }
                     }
@@ -367,6 +380,20 @@ fun SmsInboxScreen(
                             Manifest.permission.READ_SMS
                         )
                     )
+                }
+            )
+        }
+
+        // Card Mapping Dialog
+        cardToMap?.let { (lastFour, item) ->
+            CardMappingDialog(
+                cardLastFour = lastFour,
+                paymentModes = paymentModes,
+                currentPaymentModeId = item.transaction.paymentModeId,
+                onDismiss = { cardToMap = null },
+                onConfirm = { modeId ->
+                    viewModel.onCreateCardMapping(lastFour, modeId, item)
+                    cardToMap = null
                 }
             )
         }
@@ -407,7 +434,7 @@ private fun DismissedSmsCard(
                     )
                 }
                 Text(
-                    text = formatCurrency(item.transaction.originalAmount),
+                    text = formatCurrency(item.transaction.originalAmount, item.transaction.currency),
                     style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
                     color = amountColor
                 )
@@ -439,19 +466,37 @@ private fun DismissedSmsCard(
 fun PendingSmsCard(
     item: TransactionWithDetails,
     categories: List<CategoryEntity>,
+    cardMappings: List<com.fintrace.app.data.local.entity.CardMappingEntity>,
     dateFormatter: SimpleDateFormat,
     onConfirm: () -> Unit,
     onSplitAndEdit: () -> Unit,
     onDismiss: () -> Unit,
     onSelectCategory: (Long) -> Unit,
+    onMapCard: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val t = item.transaction
     val isIncome = t.type == TransactionType.INCOME
-    var isSmsExpanded by remember { mutableStateOf(false) }
+
+    // Live re-parse drives the badge, card digits, and card prompt so that already-imported
+    // rows always reflect the current parser, even if their stored confidence/card fields are stale.
+    val liveParse = remember(t.smsRawBody, t.smsSender, t.timestamp) {
+        if (!t.smsRawBody.isNullOrBlank()) {
+            com.fintrace.app.data.sms.SmsParser.parse(t.smsRawBody, t.smsSender, t.timestamp)
+        } else {
+            null
+        }
+    }
+
+    val isRawParse = liveParse?.parseConfidence == com.fintrace.app.data.model.ParseConfidence.RAW ||
+            (liveParse == null && t.parseConfidence == com.fintrace.app.data.model.ParseConfidence.RAW)
+    val cardLastFour = liveParse?.cardLastFour ?: t.cardLastFour
+    val isCardUnmapped = !cardLastFour.isNullOrBlank() && cardMappings.none { it.cardLastFour == cardLastFour }
+
+    var isSmsExpanded by remember { mutableStateOf(isRawParse) }
 
     // Derive proper merchant description if current description was a numeric amount or generic placeholder
-    val merchantDisplay = remember(t.description, t.smsRawBody) {
+    val merchantDisplay = remember(t.description, t.smsRawBody, liveParse) {
         val desc = t.description.trim()
         val isGenericOrNumeric = desc.isBlank() ||
                 desc.matches(Regex("^(?:INR|RS\\.?|₹)?\\s*[0-9]+(?:,[0-9]+)*(?:\\.[0-9]+)?\\s*$", RegexOption.IGNORE_CASE)) ||
@@ -463,9 +508,8 @@ fun PendingSmsCard(
                 desc.equals("Bank Credit / Dividend", ignoreCase = true)
 
         if (isGenericOrNumeric && !t.smsRawBody.isNullOrBlank()) {
-            val parsed = com.fintrace.app.data.sms.SmsParser.parse(t.smsRawBody, t.smsSender, t.timestamp)
-            if (parsed != null && parsed.merchant.isNotBlank() && !parsed.merchant.matches(Regex("^(?:INR|RS\\.?|₹)?\\s*[0-9]+(?:,[0-9]+)*(?:\\.[0-9]+)?\\s*$", RegexOption.IGNORE_CASE))) {
-                parsed.merchant
+            if (liveParse != null && liveParse.merchant.isNotBlank() && !liveParse.merchant.matches(Regex("^(?:INR|RS\\.?|₹)?\\s*[0-9]+(?:,[0-9]+)*(?:\\.[0-9]+)?\\s*$", RegexOption.IGNORE_CASE))) {
+                liveParse.merchant
             } else {
                 item.category?.name ?: "Expense"
             }
@@ -510,11 +554,28 @@ fun PendingSmsCard(
                 Spacer(modifier = Modifier.width(12.dp))
 
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = if (isIncome) "Income received" else merchantDisplay,
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = if (isIncome) "Income received" else merchantDisplay,
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        if (isRawParse) {
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(MaterialTheme.colorScheme.tertiaryContainer)
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
+                                Text(
+                                    text = "Partial Parse",
+                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
+                                    color = MaterialTheme.colorScheme.onTertiaryContainer
+                                )
+                            }
+                        }
+                    }
                     Text(
                         text = dateFormatter.format(Date(t.timestamp)),
                         style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
@@ -523,7 +584,7 @@ fun PendingSmsCard(
                 }
 
                 Text(
-                    text = formatCurrency(t.originalAmount),
+                    text = formatCurrency(t.originalAmount, t.currency),
                     style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
                     color = if (isIncome) IncomeGreen else ExpenseRed
                 )
@@ -542,6 +603,37 @@ fun PendingSmsCard(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     PaymentModeBadge(mode = item.paymentMode)
+                }
+
+                // Inline card mapping prompt (only for credit cards with unmapped card digits)
+                if (isCardUnmapped && cardLastFour != null) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Card(
+                        shape = RoundedCornerShape(8.dp),
+                        colors = CardDefaults.cardColors(containerColor = PrimaryBlue.copy(alpha = 0.12f)),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onMapCard(cardLastFour) }
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.CreditCard,
+                                contentDescription = null,
+                                tint = PrimaryBlue,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Card ••$cardLastFour detected — tap to map to a payment mode",
+                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                                color = PrimaryBlue,
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                    }
                 }
 
                 Spacer(modifier = Modifier.height(10.dp))

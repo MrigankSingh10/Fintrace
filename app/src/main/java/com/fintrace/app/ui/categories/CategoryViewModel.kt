@@ -43,6 +43,10 @@ class CategoryViewModel(
         _uiState.value = CategoryUiState(isEditing = false, editingCategory = null)
     }
 
+    fun clearError() {
+        _uiState.value = _uiState.value.copy(errorMessage = null)
+    }
+
     fun saveCategory(name: String, colorHex: String, iconName: String) {
         val trimmedName = name.trim()
         if (trimmedName.isBlank()) {
@@ -76,6 +80,12 @@ class CategoryViewModel(
     }
 
     fun deleteCategory(category: CategoryEntity) {
+        if (category.isDefault) {
+            _uiState.value = _uiState.value.copy(
+                errorMessage = "'${category.name}' is a default category and cannot be deleted."
+            )
+            return
+        }
         viewModelScope.launch {
             repository.deleteCategory(category)
         }

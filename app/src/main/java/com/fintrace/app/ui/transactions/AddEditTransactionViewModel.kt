@@ -38,6 +38,7 @@ data class AddEditTransactionUiState(
     val smsRawBody: String? = null,
     val smsSender: String? = null,
     val splitParticipants: List<SplitParticipantItem> = emptyList(),
+    val currency: String = "INR",
     val isLoading: Boolean = false,
     val isSaved: Boolean = false,
     val errorMessage: String? = null
@@ -130,6 +131,7 @@ class AddEditTransactionViewModel(
                     smsRawBody = t.smsRawBody,
                     smsSender = t.smsSender,
                     splitParticipants = participantItems,
+                    currency = t.currency,
                     isLoading = false,
                     isSaved = false
                 )
@@ -307,7 +309,8 @@ class AddEditTransactionViewModel(
                 smsRawBody = state.smsRawBody,
                 smsSender = state.smsSender,
                 status = TransactionStatus.CONFIRMED,
-                notes = state.notes.ifBlank { null }
+                notes = state.notes.ifBlank { null },
+                currency = state.currency
             )
 
             val splits = mutableListOf<TransactionSplitEntity>()
