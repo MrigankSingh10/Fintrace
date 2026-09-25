@@ -140,6 +140,9 @@ interface TransactionDao {
     @Query("SELECT * FROM transactions WHERE smsRawBody IS NOT NULL AND smsRawBody <> ''")
     suspend fun getAllTransactionsWithSmsBody(): List<TransactionEntity>
 
+    @Query("SELECT * FROM transactions WHERE status = 'PENDING' AND smsRawBody IS NOT NULL AND smsRawBody <> ''")
+    suspend fun getPendingTransactionsWithSmsBody(): List<TransactionEntity>
+
     @Transaction
     suspend fun saveTransactionWithSplits(
         transaction: TransactionEntity,
