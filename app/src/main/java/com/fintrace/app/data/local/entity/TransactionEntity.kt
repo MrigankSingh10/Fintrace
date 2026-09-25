@@ -48,5 +48,11 @@ data class TransactionEntity(
     val smsRawBody: String? = null,
     val smsSender: String? = null,
     val status: TransactionStatus = TransactionStatus.CONFIRMED,
-    val notes: String? = null
+    val notes: String? = null,
+    @ColumnInfo(name = "parseConfidence")
+    val parseConfidence: com.fintrace.app.data.model.ParseConfidence? = null,
+    @ColumnInfo(name = "cardLastFour")
+    val cardLastFour: String? = null,
+    @ColumnInfo(name = "currency", defaultValue = "INR")
+    val currency: String = "INR"
 )

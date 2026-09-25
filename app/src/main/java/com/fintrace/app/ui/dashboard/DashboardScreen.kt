@@ -51,6 +51,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.fintrace.app.data.local.entity.MonthlyBudgetSalaryEntity
 import com.fintrace.app.data.local.relation.CategorySpendSummary
 import com.fintrace.app.data.local.relation.MonthlyFinancialSummary
 import com.fintrace.app.data.local.relation.TransactionWithDetails
@@ -83,6 +84,7 @@ fun DashboardScreen(
 ) {
     val period by viewModel.selectedPeriod.collectAsState()
     val summary by viewModel.monthlySummary.collectAsState()
+    val monthlyBudget by viewModel.monthlyBudget.collectAsState()
     val categories by viewModel.categoryBreakdown.collectAsState()
     val recentTransactions by viewModel.recentTransactions.collectAsState()
     val isSalaryDialogOpen by viewModel.isSalaryDialogOpen.collectAsState()
@@ -157,8 +159,10 @@ fun DashboardScreen(
             currentSalary = summary.salaryAmount,
             monthName = period.displayName,
             isIncomeDerived = summary.isIncomeDerived,
+            confirmedIncome = summary.confirmedIncome,
+            monthlyBudget = monthlyBudget,
             onDismiss = { viewModel.onDismissSalaryDialog() },
-            onSave = { amount -> viewModel.saveMonthlySalary(amount) }
+            onSave = { amount, mode -> viewModel.saveMonthlySalary(amount, mode) }
         )
     }
 }

@@ -72,3 +72,4 @@ captures/
 !gradle/wrapper/gradle-wrapper.jar
 !gradle/wrapper/gradle-wrapper.properties
 TESTING_GUIDE.md
+images/

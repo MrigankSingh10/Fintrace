@@ -103,6 +103,16 @@ interface TransactionDao {
     fun getTotalConfirmedIncomeInRangeFlow(startTimestamp: Long, endTimestamp: Long): Flow<Double>
 
     @Query("""
+        SELECT COALESCE(SUM(my_share_amount), 0.0)
+        FROM transactions
+        WHERE status = 'CONFIRMED'
+          AND type = 'INCOME'
+          AND timestamp >= :startTimestamp
+          AND timestamp <= :endTimestamp
+    """)
+    suspend fun getTotalConfirmedIncomeInRange(startTimestamp: Long, endTimestamp: Long): Double
+
+    @Query("""
         SELECT 
             c.id AS categoryId,
             c.name AS categoryName,
@@ -126,6 +136,9 @@ interface TransactionDao {
 
     @Query("SELECT * FROM transactions WHERE smsRawBody = :smsBody LIMIT 1")
     suspend fun getTransactionBySmsBody(smsBody: String): TransactionEntity?
+
+    @Query("SELECT * FROM transactions WHERE smsRawBody IS NOT NULL AND smsRawBody <> ''")
+    suspend fun getAllTransactionsWithSmsBody(): List<TransactionEntity>
 
     @Transaction
     suspend fun saveTransactionWithSplits(

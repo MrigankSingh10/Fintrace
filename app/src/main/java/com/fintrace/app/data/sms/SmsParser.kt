@@ -1,5 +1,6 @@
 package com.fintrace.app.data.sms
 
+import com.fintrace.app.data.model.ParseConfidence
 import com.fintrace.app.data.model.PaymentModeType
 import com.fintrace.app.data.model.TransactionType
 import java.util.Locale
@@ -13,25 +14,57 @@ data class ParsedSmsTransaction(
     val transactionType: TransactionType = TransactionType.EXPENSE,
     val rawBody: String,
     val sender: String? = null,
-    val timestamp: Long = System.currentTimeMillis()
+    val timestamp: Long = System.currentTimeMillis(),
+    val parseConfidence: ParseConfidence = ParseConfidence.FULL,
+    val cardLastFour: String? = null,
+    val currencyCode: String = "INR"
 )
 
 object SmsParser {
 
-    // Regex for transaction amounts (e.g. INR 200, Rs. 1,500.50, Rs 500, INR 45.00)
+    // Regex for transaction amounts: INR, Rs, ₹, USD, $, EUR, €, GBP, £, AED, SGD, CAD, AUD, JPY, ¥, etc.
     private val AMOUNT_PATTERN = Pattern.compile(
-        "(?:INR|RS\\.?|₹)\\s*([0-9]+(?:,[0-9]+)*(?:\\.[0-9]{1,2})?)",
+        "((?:INR|RS\\.?|₹|USD|\\$|EUR|€|GBP|£|AED|SGD|CAD|AUD|JPY|¥))\\s*([0-9]+(?:,[0-9]+)*(?:\\.[0-9]{1,2})?)",
         Pattern.CASE_INSENSITIVE
     )
 
+    private val CURRENCY_TO_CODE = mapOf(
+        "INR" to "INR",
+        "RS" to "INR",
+        "₹" to "INR",
+        "GBP" to "GBP",
+        "£" to "GBP",
+        "USD" to "USD",
+        "$" to "USD",
+        "EUR" to "EUR",
+        "€" to "EUR",
+        "AED" to "AED",
+        "SGD" to "SGD",
+        "CAD" to "CAD",
+        "AUD" to "AUD",
+        "JPY" to "JPY",
+        "¥" to "JPY"
+    )
+
+    fun normalizeCurrencyToken(raw: String): String =
+        CURRENCY_TO_CODE[raw.trim().replace(".", "").uppercase()] ?: "INR"
+
     // Keywords indicating debit/spend
     private val DEBIT_KEYWORDS = listOf(
-        "debited", "spent", "paid", "charged", "withdrawn", "txn of", "purchase of", "sent to"
+        "debited", "spent", "paid", "charged", "withdrawn", "txn of", "purchase of", "sent to",
+        "used at", "used on", "swiped", "blocked", "transaction at", "emi", "deducted"
     )
 
     // Keywords indicating credit/income
     private val CREDIT_KEYWORDS = listOf(
-        "credited", "refund", "received from", "salary", "cashback"
+        "credited", "refund", "received from", "salary", "cashback", "deposited"
+    )
+
+    // Senders typically associated with banks / finance alerts
+    private val BANK_SENDER_KEYWORDS = listOf(
+        "BANK", "HDFC", "ICICI", "SBI", "AXIS", "KOTAK", "PNB", "BOB", "CANARA", "UNION",
+        "INDUS", "YESBK", "RBL", "FED", "IDBI", "IDFC", "PAYTM", "GPAY", "AMAZON", "APAY",
+        "CITI", "SCB", "STANDARD", "BAROD", "CRED", "SLICE", "JUPITER", "FI", "BOBCARD", "SCAPIA"
     )
 
     // OTP / Non-transaction filters to strictly ignore
@@ -53,16 +86,16 @@ object SmsParser {
     private val MERCHANT_PATTERNS = listOf(
         // "; Zepto credited." or "; Umed Singh Goud credited. UPI:..."
         Pattern.compile("(?:;|\\.|\\b)\\s*([A-Za-z0-9\\.\\-_@&/ ]+?)\\s+credited(?:\\.|;|\$|\\s+upi|\\s+ref|\\s+call)", Pattern.CASE_INSENSITIVE),
-        // "at SWIGGY on 28-Aug" or "at AMAZON INDIA."
-        Pattern.compile("\\bat\\s+([A-Za-z0-9\\.\\-_@&/ ]+?)(?:\\s+on|\\s+ref|\\s+avl|\\s+bal|\\s+tot|\\s+using|\\s+limit|\\.|\$|;)", Pattern.CASE_INSENSITIVE),
+        // "at SWIGGY on 28-Aug" or "at AMAZON INDIA." or "AT HOLAFLY WAS SUCCESSFUL"
+        Pattern.compile("\\bat\\s+([A-Za-z0-9\\.\\-_@&/ ]+?)(?:\\s+was|\\s+is|\\s+on|\\s+ref|\\s+avl|\\s+bal|\\s+tot|\\s+using|\\s+limit|\\.|\$|;)", Pattern.CASE_INSENSITIVE),
         // "paid to SWIGGY on" / "transfer to John on" / "sent to John"
-        Pattern.compile("(?:paid|transferred|transfer|sent)\\s+to\\s+([A-Za-z0-9\\.\\-_@&/ ]+?)(?:\\s+on|\\s+ref|\\s+using|\\s+via|\\s+avl|\\s+bal|\\.|\$|;)", Pattern.CASE_INSENSITIVE),
+        Pattern.compile("(?:paid|transferred|transfer|sent)\\s+to\\s+([A-Za-z0-9\\.\\-_@&/ ]+?)(?:\\s+was|\\s+is|\\s+on|\\s+ref|\\s+using|\\s+via|\\s+avl|\\s+bal|\\.|\$|;)", Pattern.CASE_INSENSITIVE),
         // "spent on SWIGGY on" / "spent at SWIGGY" / "towards SWIGGY on"
-        Pattern.compile("(?:spent\\s+(?:on|at)|towards)\\s+([A-Za-z0-9\\.\\-_@&/ ]+?)(?:\\s+on|\\s+using|\\s+via|\\s+avl|\\s+bal|\\.|\$|;)", Pattern.CASE_INSENSITIVE),
+        Pattern.compile("(?:spent\\s+(?:on|at)|towards)\\s+([A-Za-z0-9\\.\\-_@&/ ]+?)(?:\\s+was|\\s+is|\\s+on|\\s+using|\\s+via|\\s+avl|\\s+bal|\\.|\$|;)", Pattern.CASE_INSENSITIVE),
         // "vpa swiggy@icici on"
         Pattern.compile("\\bvpa\\s+([A-Za-z0-9\\.\\-_@&]+)", Pattern.CASE_INSENSITIVE),
         // "to VPA swiggy@icici" or "to merchant xyz"
-        Pattern.compile("\\bto\\s+(?:vpa\\s+)?([A-Za-z0-9\\.\\-_@& ]+?)(?:\\s+on|\\s+ref|\\s+avl|\\s+bal|\\s+tot|\\s+using|\\.|\$|;)", Pattern.CASE_INSENSITIVE),
+        Pattern.compile("\\bto\\s+(?:vpa\\s+)?([A-Za-z0-9\\.\\-_@& ]+?)(?:\\s+was|\\s+is|\\s+on|\\s+ref|\\s+avl|\\s+bal|\\s+tot|\\s+using|\\.|\$|;)", Pattern.CASE_INSENSITIVE),
         // "info/SWIGGY/1234" or "UPI/SWIGGY/123"
         Pattern.compile("(?:info|inf|desc)[\\*:/\\s]+(?:ach\\*|upi/|imps/|neft/)?([A-Za-z0-9\\.\\-_@& ]+?)(?:\\*[0-9]+|/[0-9]+|\\s+on|\\s+ref|\\s+avl|\\s+bal|\\.|\$|;)", Pattern.CASE_INSENSITIVE),
         // "UPI/123456/SWIGGY"
@@ -70,16 +103,16 @@ object SmsParser {
     )
 
     // Regex to detect purely numeric or amount string that should NEVER be a merchant
-    private val NUMERIC_OR_AMOUNT_REGEX = Regex("^(?:INR|RS\\.?|₹)?\\s*[0-9]+(?:,[0-9]+)*(?:\\.[0-9]+)?\\s*$", RegexOption.IGNORE_CASE)
+    private val NUMERIC_OR_AMOUNT_REGEX = Regex("^(?:INR|RS\\.?|₹|USD|\\$|EUR|€|GBP|£|AED|SGD|CAD|AUD|JPY|¥)?\\s*[0-9]+(?:,[0-9]+)*(?:\\.[0-9]+)?\\s*$", RegexOption.IGNORE_CASE)
     private val INVALID_WORDS = listOf(
         "a transaction of", "transaction of", "card ending", "account ending", "your account",
         "your card", "credit card", "debit card", "bank", "atm", "purchase of", "payment of",
         "for inr", "for rs", "by inr", "by rs", "avl lmt", "avl bal", "ref no", "upi ref"
     )
 
-    // Card pattern (e.g. Card ending 1234 or Card XX1234)
+    // Card pattern (e.g. Card ending 1234, Card XX1234, AMEX card ** 81000 with 4-6 digit tail)
     private val CARD_PATTERN = Pattern.compile(
-        "(?:credit\\s*card|card)\\s*(?:ending|no|\\s)*[xX*]*([0-9]{4})",
+        "(?:credit\\s*card|card|ending\\s*with|ending)\\s*(?:ending|no|\\s)*[xX*·•\\-]*\\s*([0-9]{4,6})",
         Pattern.CASE_INSENSITIVE
     )
 
@@ -89,8 +122,14 @@ object SmsParser {
         Pattern.CASE_INSENSITIVE
     )
 
+    fun extractCardLastFour(body: String): String? {
+        val matcher = CARD_PATTERN.matcher(body)
+        return if (matcher.find()) matcher.group(1) else null
+    }
+
     fun parse(smsBody: String, sender: String? = null, timestamp: Long = System.currentTimeMillis()): ParsedSmsTransaction? {
         val lower = smsBody.lowercase()
+        val senderUpper = (sender ?: "").uppercase()
 
         // 1. Filter out OTPs or non-financial messages
         if (IGNORE_KEYWORDS.any { lower.contains(it) }) {
@@ -102,26 +141,32 @@ object SmsParser {
             return null
         }
 
-        // 3. Check for Financial Action (Debit or Credit)
-        val isDebit = DEBIT_KEYWORDS.any { lower.contains(it) }
-        val isCredit = CREDIT_KEYWORDS.any { lower.contains(it) }
-
-        if (!isDebit && !isCredit) {
-            return null
-        }
-
-        // 4. Extract Amount
+        // 3. Extract Amount (required per specification)
         val amountMatcher = AMOUNT_PATTERN.matcher(smsBody)
         if (!amountMatcher.find()) {
             return null
         }
 
-        val rawAmountStr = amountMatcher.group(1)?.replace(",", "") ?: return null
+        val rawAmountStr = amountMatcher.group(2)?.replace(",", "") ?: return null
         val amount = rawAmountStr.toDoubleOrNull() ?: return null
         if (amount <= 0.0) return null
+        val currencyCode = normalizeCurrencyToken(amountMatcher.group(1) ?: "INR")
+
+        // 4. Check for Financial Action (Debit or Credit)
+        val isDebit = DEBIT_KEYWORDS.any { lower.contains(it) }
+        val isCredit = CREDIT_KEYWORDS.any { lower.contains(it) }
+        val isSenderBank = BANK_SENDER_KEYWORDS.any { senderUpper.contains(it) }
+
+        // If neither debit nor credit keywords found:
+        // If it comes from a bank sender or contains account/card references with an amount, treat as RAW confidence
+        val isRawConfidence = !isDebit && !isCredit
+        if (isRawConfidence && !isSenderBank && !lower.contains("card") && !lower.contains("a/c") && !lower.contains("account")) {
+            return null
+        }
 
         val isIncome = isCredit && !isDebit
         val txnType = if (isIncome) TransactionType.INCOME else TransactionType.EXPENSE
+        val confidence = if (isRawConfidence) ParseConfidence.RAW else ParseConfidence.FULL
 
         // 5. Extract Merchant / Payee
         var merchant = extractMerchant(smsBody)
@@ -129,7 +174,8 @@ object SmsParser {
             merchant = inferMerchantFromSender(sender, isIncome) ?: if (isIncome) "Bank Credit / Dividend" else "Bank / Card Expense"
         }
 
-        // 6. Detect Payment Mode (DEBIT, ICICI Coral, ICICI APAY, HDFC Neu)
+        // 6. Detect Payment Mode & Card Last 4
+        val cardLast4 = extractCardLastFour(smsBody)
         val (modeType, modeName) = if (isIncome) null to null else detectPaymentMode(smsBody, sender)
 
         return ParsedSmsTransaction(
@@ -140,7 +186,10 @@ object SmsParser {
             transactionType = txnType,
             rawBody = smsBody,
             sender = sender,
-            timestamp = timestamp
+            timestamp = timestamp,
+            parseConfidence = confidence,
+            cardLastFour = cardLast4,
+            currencyCode = currencyCode
         )
     }
 
@@ -188,7 +237,6 @@ object SmsParser {
 
     private fun detectPaymentMode(body: String, sender: String?): Pair<PaymentModeType, String> {
         val lower = body.lowercase()
-        val senderUpper = (sender ?: "").uppercase()
 
         val isCreditCard = lower.contains("credit card") || lower.contains("creditcard") ||
                 (lower.contains("card") && !lower.contains("debit card") && !lower.contains("account") && !lower.contains("a/c"))
@@ -197,24 +245,11 @@ object SmsParser {
                 lower.contains("a/c") || lower.contains("acct") || lower.contains("debit card") ||
                 lower.contains("debited from a/c")
 
-        // 1. Check for specific Credit Cards
         if (isCreditCard && !isBankAccount) {
-            // ICICI APAY Card
-            if (lower.contains("amazon") || lower.contains("apay") || senderUpper.contains("AMAZON")) {
-                return PaymentModeType.CREDIT_CARD to "ICICI APAY"
-            }
-            // ICICI Coral or other ICICI Credit Cards
-            if (senderUpper.contains("ICICI") || lower.contains("icici")) {
-                return PaymentModeType.CREDIT_CARD to "ICICI Coral"
-            }
-            // HDFC Neu or other HDFC Credit Cards
-            if (senderUpper.contains("HDFC") || lower.contains("hdfc")) {
-                return PaymentModeType.CREDIT_CARD to "HDFC Neu"
-            }
-            return PaymentModeType.CREDIT_CARD to "ICICI Coral"
+            return PaymentModeType.CREDIT_CARD to "Credit Card"
         }
 
-        // 2. All UPI, Bank Accounts, Debit Cards, APAY UPI -> DEBIT
+        // All UPI, Bank Accounts, Debit Cards, APAY UPI -> DEBIT
         return PaymentModeType.BANK_DEBIT to "DEBIT"
     }
 

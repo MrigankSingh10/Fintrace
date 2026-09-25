@@ -8,6 +8,7 @@ import com.fintrace.app.data.local.entity.TransactionSplitEntity
 import com.fintrace.app.data.local.relation.CategorySpendSummary
 import com.fintrace.app.data.local.relation.MonthlyFinancialSummary
 import com.fintrace.app.data.local.relation.TransactionWithDetails
+import com.fintrace.app.data.model.SalaryMode
 import kotlinx.coroutines.flow.Flow
 
 interface FinanceRepository {
@@ -25,6 +26,7 @@ interface FinanceRepository {
     suspend fun updatePaymentMode(mode: PaymentModeEntity)
     suspend fun deletePaymentMode(mode: PaymentModeEntity)
     suspend fun getPaymentModeById(id: Long): PaymentModeEntity?
+    suspend fun ensureCreditCardMode(): Long
 
     // Transactions
     fun getConfirmedTransactions(): Flow<List<TransactionWithDetails>>
@@ -40,9 +42,16 @@ interface FinanceRepository {
     suspend fun deleteTransaction(transaction: TransactionEntity)
     suspend fun isSmsAlreadyProcessed(smsBody: String): Boolean
 
+    // Card Mappings
+    fun getAllCardMappings(): Flow<List<com.fintrace.app.data.local.entity.CardMappingEntity>>
+    suspend fun addCardMapping(cardMapping: com.fintrace.app.data.local.entity.CardMappingEntity): Long
+    suspend fun updateCardMapping(cardMapping: com.fintrace.app.data.local.entity.CardMappingEntity)
+    suspend fun deleteCardMapping(cardMapping: com.fintrace.app.data.local.entity.CardMappingEntity)
+    suspend fun getCardMappingByLastFour(lastFour: String): com.fintrace.app.data.local.entity.CardMappingEntity?
+
     // Monthly Budget & Analytics
     fun getBudgetForMonth(monthYear: String): Flow<MonthlyBudgetSalaryEntity?>
-    suspend fun setMonthlySalary(monthYear: String, salary: Double, notes: String? = null)
+    suspend fun setMonthlySalary(monthYear: String, salary: Double, notes: String? = null, salaryMode: SalaryMode = SalaryMode.OVERRIDE)
     fun getMonthlyFinancialSummary(monthYear: String, startTimestamp: Long, endTimestamp: Long): Flow<MonthlyFinancialSummary>
     fun getCategoryBreakdown(startTimestamp: Long, endTimestamp: Long): Flow<List<CategorySpendSummary>>
 }

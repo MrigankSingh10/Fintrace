@@ -26,11 +26,40 @@ import com.fintrace.app.ui.theme.IncomeGreen
 import com.fintrace.app.ui.theme.SplitBadgeBg
 import com.fintrace.app.ui.theme.SplitBadgeText
 import java.text.NumberFormat
+import java.util.Currency
 import java.util.Locale
 
-fun formatCurrency(amount: Double): String {
-    val formatter = NumberFormat.getCurrencyInstance(Locale("en", "IN"))
-    return formatter.format(amount).replace("INR", "₹").trim()
+private val CURRENCY_SYMBOLS = mapOf(
+    "INR" to "₹",
+    "GBP" to "£",
+    "USD" to "$",
+    "EUR" to "€",
+    "AED" to "AED",
+    "SGD" to "S$",
+    "CAD" to "CA$",
+    "AUD" to "A$",
+    "JPY" to "¥"
+)
+
+fun currencySymbol(currencyCode: String): String =
+    CURRENCY_SYMBOLS[currencyCode]
+        ?: runCatching { Currency.getInstance(currencyCode).symbol }.getOrDefault(currencyCode)
+
+fun formatCurrency(amount: Double, currencyCode: String = "INR"): String {
+    val formatter = if (currencyCode == "INR") {
+        NumberFormat.getCurrencyInstance(Locale("en", "IN"))
+    } else {
+        NumberFormat.getCurrencyInstance(Locale.getDefault())
+    }
+    val formatted = runCatching { formatter.format(amount) }.getOrDefault("%.2f".format(amount))
+    return when (currencyCode) {
+        "INR" -> formatted.replace("INR", "₹").trim()
+        else -> {
+            val symbol = currencySymbol(currencyCode)
+            if (formatted.contains(symbol)) formatted
+            else "$symbol ${"%.2f".format(amount)}".trim()
+        }
+    }
 }
 
 @Composable
@@ -38,6 +67,7 @@ fun DualAmountDisplay(
     originalAmount: Double,
     myShareAmount: Double,
     isExpense: Boolean = true,
+    currencyCode: String = "INR",
     modifier: Modifier = Modifier,
     horizontalAlignment: Alignment.Horizontal = Alignment.End
 ) {
@@ -80,7 +110,7 @@ fun DualAmountDisplay(
             }
 
             Text(
-                text = "$sign${formatCurrency(myShareAmount)}",
+                text = "$sign${formatCurrency(myShareAmount, currencyCode)}",
                 style = MaterialTheme.typography.titleMedium.copy(
                     fontWeight = FontWeight.Bold,
                     fontSize = 16.sp
@@ -91,7 +121,7 @@ fun DualAmountDisplay(
 
         if (isSplit) {
             Text(
-                text = "Total: ${formatCurrency(originalAmount)}",
+                text = "Total: ${formatCurrency(originalAmount, currencyCode)}",
                 style = MaterialTheme.typography.bodySmall.copy(
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Normal

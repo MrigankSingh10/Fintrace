@@ -149,7 +149,7 @@ fun TransactionDetailSheet(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                             Text(
-                                text = "$signPrefix${formatCurrency(t.myShareAmount)}",
+                                text = "$signPrefix${formatCurrency(t.myShareAmount, t.currency)}",
                                 style = MaterialTheme.typography.displaySmall.copy(fontWeight = FontWeight.Bold),
                                 color = amountColor
                             )
@@ -163,7 +163,7 @@ fun TransactionDetailSheet(
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                                 Text(
-                                    text = formatCurrency(t.originalAmount),
+                                    text = formatCurrency(t.originalAmount, t.currency),
                                     style = MaterialTheme.typography.titleMedium,
                                     color = MaterialTheme.colorScheme.onSurface
                                 )
@@ -183,7 +183,7 @@ fun TransactionDetailSheet(
                             Icon(imageVector = Icons.Default.CallSplit, contentDescription = null, tint = SplitBadgeText, modifier = Modifier.size(12.dp))
                             Spacer(modifier = Modifier.width(4.dp))
                             Text(
-                                text = "Split Expense (Budget math uses My Share: ${formatCurrency(t.myShareAmount)})",
+                                text = "Split Expense (Budget math uses My Share: ${formatCurrency(t.myShareAmount, t.currency)})",
                                 style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
                                 color = SplitBadgeText
                             )
@@ -233,7 +233,7 @@ fun TransactionDetailSheet(
                                     )
                                 }
                                 Text(
-                                    text = formatCurrency(split.shareAmount),
+                                    text = formatCurrency(split.shareAmount, t.currency),
                                     style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
                                     color = MaterialTheme.colorScheme.onSurface
                                 )

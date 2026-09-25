@@ -19,6 +19,9 @@ interface MonthlyBudgetDao {
     @Query("SELECT * FROM monthly_budgets ORDER BY month_year DESC")
     fun getAllBudgetsFlow(): Flow<List<MonthlyBudgetSalaryEntity>>
 
+    @Query("SELECT * FROM monthly_budgets ORDER BY month_year DESC")
+    suspend fun getAllBudgets(): List<MonthlyBudgetSalaryEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertBudget(budget: MonthlyBudgetSalaryEntity)
 

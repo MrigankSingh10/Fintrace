@@ -29,8 +29,33 @@ class PaymentModeViewModel(
             initialValue = emptyList()
         )
 
+    val cardMappings: StateFlow<List<com.fintrace.app.data.local.entity.CardMappingEntity>> = repository.getAllCardMappings()
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = emptyList()
+        )
+
     private val _uiState = MutableStateFlow(PaymentModeUiState())
     val uiState: StateFlow<PaymentModeUiState> = _uiState.asStateFlow()
+
+    fun deleteCardMapping(mapping: com.fintrace.app.data.local.entity.CardMappingEntity) {
+        viewModelScope.launch {
+            repository.deleteCardMapping(mapping)
+        }
+    }
+
+    fun saveCardMapping(lastFour: String, paymentModeId: Long, label: String? = null) {
+        viewModelScope.launch {
+            repository.addCardMapping(
+                com.fintrace.app.data.local.entity.CardMappingEntity(
+                    cardLastFour = lastFour,
+                    paymentModeId = paymentModeId,
+                    label = label
+                )
+            )
+        }
+    }
 
     fun onAddModeClicked() {
         _uiState.value = PaymentModeUiState(isEditing = true, editingMode = null)
@@ -76,6 +101,7 @@ class PaymentModeViewModel(
     }
 
     fun deletePaymentMode(mode: PaymentModeEntity) {
+        if (mode.id == 1L) return
         viewModelScope.launch {
             repository.deletePaymentMode(mode)
         }

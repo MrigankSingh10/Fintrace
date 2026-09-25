@@ -48,15 +48,29 @@ class SmsBroadcastReceiver : BroadcastReceiver() {
             val defaultCategoryId = categories.find { it.name.equals("Needs", ignoreCase = true) }?.id
                 ?: categories.firstOrNull()?.id ?: 1L
 
-            // Find or match payment mode strictly by name first
+            // Find or match payment mode:
+            // 1. If card last 4 digits were detected, check user's card_mappings first
             val paymentModes = database.paymentModeDao().getAllPaymentModes()
-            val matchedMode = parsed.paymentModeName?.let { name ->
-                paymentModes.find { it.name.equals(name, ignoreCase = true) }
-                    ?: paymentModes.find { it.name.contains(name, ignoreCase = true) }
+            val mappedPaymentModeId = parsed.cardLastFour?.let { lastFour ->
+                database.cardMappingDao().getCardMappingByLastFour(lastFour)?.paymentModeId
             }
-                ?: parsed.paymentModeType?.let { type -> paymentModes.find { it.type == type } }
-                ?: paymentModes.find { it.name.equals("DEBIT", ignoreCase = true) }
-            val paymentModeId = matchedMode?.id ?: paymentModes.firstOrNull()?.id ?: 1L
+
+            val paymentModeId = mappedPaymentModeId ?: run {
+                val matchedMode = parsed.paymentModeName?.let { name ->
+                    paymentModes.find { it.name.equals(name, ignoreCase = true) }
+                        ?: paymentModes.find { it.name.contains(name, ignoreCase = true) }
+                }
+                    ?: parsed.paymentModeType?.let { type -> paymentModes.find { it.type == type } }
+                if (matchedMode != null) {
+                    matchedMode.id
+                } else if (parsed.paymentModeType == com.fintrace.app.data.model.PaymentModeType.CREDIT_CARD) {
+                    // A card parse must never fall back to DEBIT when no credit-card mode exists
+                    repository.ensureCreditCardMode()
+                } else {
+                    paymentModes.find { it.name.equals("DEBIT", ignoreCase = true) }?.id
+                        ?: paymentModes.firstOrNull()?.id ?: 1L
+                }
+            }
 
             val pendingTransaction = TransactionEntity(
                 id = 0,
@@ -70,7 +84,10 @@ class SmsBroadcastReceiver : BroadcastReceiver() {
                 smsRawBody = parsed.rawBody,
                 smsSender = parsed.sender,
                 status = TransactionStatus.PENDING,
-                notes = "Auto-detected from SMS alert"
+                notes = "Auto-detected from SMS alert",
+                parseConfidence = parsed.parseConfidence,
+                cardLastFour = parsed.cardLastFour,
+                currency = parsed.currencyCode
             )
 
             database.transactionDao().insertTransaction(pendingTransaction)
