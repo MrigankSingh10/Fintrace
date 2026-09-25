@@ -1,6 +1,7 @@
 package com.fintrace.app
 
 import com.fintrace.app.data.model.PaymentModeType
+import com.fintrace.app.data.model.ParseConfidence
 import com.fintrace.app.data.model.TransactionType
 import com.fintrace.app.data.sms.SmsParser
 import org.junit.Assert.assertEquals
@@ -137,13 +138,11 @@ class SmsParserTest {
 
     @Test
     fun testBankSenderRawMessageWithAmount() {
+        // Statement-due alerts move no money and must be ignored as transactions.
         val sms = "HDFC Bank Alert: Total due for statement is Rs. 4,320.00 for your Card XX5566"
         val parsed = SmsParser.parse(sms, "HDFCBK")
 
-        assertNotNull(parsed)
-        assertEquals(4320.0, parsed!!.amount, 0.001)
-        assertEquals("5566", parsed.cardLastFour)
-        assertEquals(com.fintrace.app.data.model.ParseConfidence.RAW, parsed.parseConfidence)
+        assertNull("Statement-due alert must be ignored", parsed)
     }
 
     @Test
@@ -187,6 +186,119 @@ class SmsParserTest {
         assertEquals("45219", parsed.cardLastFour)
         assertEquals(PaymentModeType.CREDIT_CARD, parsed.paymentModeType)
         assertEquals(com.fintrace.app.data.model.ParseConfidence.FULL, parsed.parseConfidence)
+        assertEquals(TransactionType.EXPENSE, parsed.transactionType)
+    }
+
+    @Test
+    fun testHdfcDailyAvailableBalIgnored() {
+        val sms = "Available Bal in HDFC Bank A/c XX2745 as on yesterday:22-SEP-26 is INR 6,45,594.37. Cheques are subject to clearing.For updated A/C Bal dial 18002703333."
+        val parsed = SmsParser.parse(sms, "HDFCBK")
+
+        assertNull("Daily balance update must be ignored", parsed)
+    }
+
+    @Test
+    fun testGenericAvlBalWithoutActionIgnored() {
+        val sms = "Avl Bal in A/c XX857 is Rs. 50,000.00. Total Avl Lmt is Rs. 2,00,000.00."
+        val parsed = SmsParser.parse(sms, "ICICIB")
+
+        assertNull("Balance-only alert must be ignored", parsed)
+    }
+
+    @Test
+    fun testBalanceAsOnWithoutActionIgnored() {
+        val sms = "Your A/c balance as on 22-SEP-26 is INR 6,45,594.37."
+        val parsed = SmsParser.parse(sms, "HDFCBK")
+
+        assertNull("Balance-as-on alert must be ignored", parsed)
+    }
+
+    @Test
+    fun testMinimumDueWithoutActionIgnored() {
+        val sms = "Minimum due of Rs. 500.00, payment due date 05-Oct-26 for Card XX5566."
+        val parsed = SmsParser.parse(sms, "HDFCBK")
+
+        assertNull("Minimum-due alert must be ignored", parsed)
+    }
+
+    @Test
+    fun testSpendWithAvlLmtSuffixStillParsed() {
+        // Negative control: real spend carrying an Avl Lmt suffix must NOT be ignored,
+        // and the first amount (not the limit) is the transaction amount.
+        val sms = "Alert: You've spent INR 1,450.00 on HDFC Bank Credit Card XX4321 at SWIGGY on 18-AUG-2026. Avl Lmt: INR 85,000.00"
+        val parsed = SmsParser.parse(sms, "HDFCBK")
+
+        assertNotNull("Real spend with Avl suffix must still parse", parsed)
+        assertEquals(1450.0, parsed!!.amount, 0.001)
+        assertEquals(TransactionType.EXPENSE, parsed.transactionType)
+    }
+
+    @Test
+    fun testCreditWithAvailableBalanceSuffixStillParsed() {
+        // Negative control: real credit carrying an Available Balance suffix must NOT be ignored.
+        val sms = "ICICI Bank Account XX857 credited:Rs. 17.00 on 18-Aug-26. Info ACH*COAL INDIA LTD*937306. Available Balance is Rs. 9,62,504.24."
+        val parsed = SmsParser.parse(sms, "BG-ICICIT-S")
+
+        assertNotNull("Real credit with balance suffix must still parse", parsed)
+        assertEquals(17.0, parsed!!.amount, 0.001)
+        assertEquals(TransactionType.INCOME, parsed.transactionType)
+    }
+
+    @Test
+    fun testPromotionalCashbackRejected() {
+        val parsed = SmsParser.parse("Get ₹500 cashback on your HDFC card. Apply today!", "HDFCBK")
+
+        assertNull("Cashback advertising must not be imported as income", parsed)
+    }
+
+    @Test
+    fun testPromotionalEmiRejected() {
+        val parsed = SmsParser.parse("Convert purchases to EMI of INR 2,000 on your ICICI card.", "ICICIB")
+
+        assertNull("An EMI offer is not a posted expense", parsed)
+    }
+
+    @Test
+    fun testBankCardOfferWithAmountRejected() {
+        val parsed = SmsParser.parse("Exclusive HDFC card offer: save INR 1,000 at Amazon.", "HDFCBK")
+
+        assertNull("Sender, card, and amount are not sufficient transaction evidence", parsed)
+    }
+
+    @Test
+    fun testPromotionalSalaryAndRefundWordingRejected() {
+        assertNull(SmsParser.parse("Unlock salary benefits worth INR 5,000 with your bank account.", "AXISBK"))
+        assertNull(SmsParser.parse("Get an instant refund of INR 500 on your next purchase.", "PAYTM"))
+    }
+
+    @Test
+    fun testNonPostedTransactionsRejected() {
+        assertNull(SmsParser.parse("Transaction of INR 900 on Card XX1122 failed.", "HDFCBK"))
+        assertNull(SmsParser.parse("INR 900 was declined on Card XX1122 at SWIGGY.", "HDFCBK"))
+        assertNull(SmsParser.parse("Transaction of INR 900 on Card XX1122 was cancelled.", "HDFCBK"))
+        assertNull(SmsParser.parse("Transaction of INR 900 on Card XX1122 was reversed.", "HDFCBK"))
+    }
+
+    @Test
+    fun testCompletedCashbackRefundAndSalaryCreditsAccepted() {
+        val cashback = SmsParser.parse("Cashback of INR 50 credited to your Account XX857.", "ICICIB")
+        val refund = SmsParser.parse("Refund of INR 275 has been processed for your card XX1122.", "HDFCBK")
+        val salary = SmsParser.parse("Salary of INR 75,000 credited to your Account XX857.", "ICICIB")
+
+        assertEquals(TransactionType.INCOME, cashback?.transactionType)
+        assertEquals(TransactionType.INCOME, refund?.transactionType)
+        assertEquals(TransactionType.INCOME, salary?.transactionType)
+    }
+
+    @Test
+    fun testCompletedBankTransactionUsesRawConfidence() {
+        val parsed = SmsParser.parse(
+            "Your card transaction for INR 700 was successful.",
+            "SBIBNK"
+        )
+
+        assertNotNull(parsed)
+        assertEquals(ParseConfidence.RAW, parsed!!.parseConfidence)
         assertEquals(TransactionType.EXPENSE, parsed.transactionType)
     }
 }

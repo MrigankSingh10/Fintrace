@@ -7,6 +7,7 @@ import com.fintrace.app.data.model.PaymentModeType
 import com.fintrace.app.data.model.SalaryMode
 import com.fintrace.app.data.repository.FinanceRepository
 import com.fintrace.app.data.repository.FinanceRepositoryImpl
+import com.fintrace.app.data.sms.SmsPendingCleanup
 import com.fintrace.app.data.sms.SmsParser
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -48,6 +49,7 @@ class FinanceTrackerApp : Application() {
         instance = this
         normalizeLegacySalaryRows()
         backfillTransactionParses()
+        cleanupInvalidPendingSmsImports()
     }
 
     /**
@@ -116,6 +118,28 @@ class FinanceTrackerApp : Application() {
                     txDao.updateTransaction(updated)
                 }
                 prefs.edit().putBoolean("done", true).apply()
+            }
+        }
+    }
+
+    /**
+     * One-time cleanup for promotional messages admitted by the old permissive parser.
+     * Only pending SMS imports are candidates; confirmed, dismissed, and manual rows are
+     * never queried or deleted. The completion marker is written only after every delete
+     * succeeds so an interrupted cleanup can safely retry on the next launch.
+     */
+    private fun cleanupInvalidPendingSmsImports() {
+        val prefs = getSharedPreferences("sms_parser_cleanup", MODE_PRIVATE)
+        val cleanupKey = "strong_evidence_v1_done"
+        if (prefs.getBoolean(cleanupKey, false)) return
+        applicationScope.launch {
+            runCatching {
+                val txDao = database.transactionDao()
+                val pendingSmsRows = txDao.getPendingTransactionsWithSmsBody()
+                SmsPendingCleanup.invalidRows(pendingSmsRows).forEach { row ->
+                    txDao.deleteTransaction(row)
+                }
+                prefs.edit().putBoolean(cleanupKey, true).apply()
             }
         }
     }

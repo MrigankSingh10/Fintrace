@@ -49,15 +49,49 @@ object SmsParser {
     fun normalizeCurrencyToken(raw: String): String =
         CURRENCY_TO_CODE[raw.trim().replace(".", "").uppercase()] ?: "INR"
 
-    // Keywords indicating debit/spend
-    private val DEBIT_KEYWORDS = listOf(
-        "debited", "spent", "paid", "charged", "withdrawn", "txn of", "purchase of", "sent to",
-        "used at", "used on", "swiped", "blocked", "transaction at", "emi", "deducted"
+    // Strong evidence that money actually moved. Word boundaries prevent accidental
+    // matches such as "prepaid", while the directed-payment patterns avoid treating
+    // promotional uses of "pay" as completed transactions.
+    private val DEBIT_ACTION_PATTERNS = listOf(
+        Pattern.compile("\\bdebited\\b", Pattern.CASE_INSENSITIVE),
+        Pattern.compile("\\bspent\\b", Pattern.CASE_INSENSITIVE),
+        Pattern.compile("\\bcharged\\b", Pattern.CASE_INSENSITIVE),
+        Pattern.compile("\\bwithdrawn\\b", Pattern.CASE_INSENSITIVE),
+        Pattern.compile("\\bdeducted\\b", Pattern.CASE_INSENSITIVE),
+        Pattern.compile("\\b(?:paid|transferred|sent)\\s+to\\b", Pattern.CASE_INSENSITIVE),
+        Pattern.compile(
+            "\\b(?:paid|transferred|sent)\\b\\s+(?:(?:INR|RS\\.?|₹|USD|\\$|EUR|€|GBP|£|AED|SGD|CAD|AUD|JPY|¥)\\s*)?[0-9][0-9,]*(?:\\.[0-9]{1,2})?\\s+to\\b",
+            Pattern.CASE_INSENSITIVE
+        ),
+        Pattern.compile("\\b(?:txn|transaction)\\s+(?:of|at)\\b", Pattern.CASE_INSENSITIVE),
+        Pattern.compile("\\bpurchase\\s+of\\b", Pattern.CASE_INSENSITIVE),
+        Pattern.compile("\\bused\\s+(?:at|on)\\b", Pattern.CASE_INSENSITIVE),
+        Pattern.compile("\\bswiped(?:\\s+(?:at|on))?\\b", Pattern.CASE_INSENSITIVE)
     )
 
-    // Keywords indicating credit/income
-    private val CREDIT_KEYWORDS = listOf(
-        "credited", "refund", "received from", "salary", "cashback", "deposited"
+    private val CREDIT_ACTION_PATTERNS = listOf(
+        Pattern.compile("\\bcredited\\b", Pattern.CASE_INSENSITIVE),
+        Pattern.compile("\\bdeposited\\b", Pattern.CASE_INSENSITIVE),
+        Pattern.compile("\\breceived\\s+from\\b", Pattern.CASE_INSENSITIVE)
+    )
+
+    // Standalone refund/cashback/salary wording is common in advertising. Refund and
+    // cashback messages without a normal credit verb are accepted only when they say
+    // that the event itself has completed.
+    private val COMPLETED_CREDIT_PATTERN = Pattern.compile(
+        "\\b(?:refund|cashback)\\b.{0,80}\\b(?:processed|completed)\\b",
+        Pattern.CASE_INSENSITIVE or Pattern.DOTALL
+    )
+
+    private val TRANSACTION_TERM_PATTERN = Pattern.compile("\\b(?:txn|transaction)\\b", Pattern.CASE_INSENSITIVE)
+    private val COMPLETION_PATTERN = Pattern.compile(
+        "\\b(?:successful|successfully|completed|done|approved)\\b",
+        Pattern.CASE_INSENSITIVE
+    )
+
+    private val NON_POSTED_PATTERN = Pattern.compile(
+        "\\b(?:failed|declined|cancelled|canceled|unsuccessful|reversed|reversal)\\b",
+        Pattern.CASE_INSENSITIVE
     )
 
     // Senders typically associated with banks / finance alerts
@@ -80,6 +114,25 @@ object SmsParser {
         Pattern.compile("autopay.*payment received for.*card", Pattern.CASE_INSENSITIVE),
         Pattern.compile("bill payment received for.*credit card", Pattern.CASE_INSENSITIVE),
         Pattern.compile("payment of.*received for your credit card", Pattern.CASE_INSENSITIVE)
+    )
+
+    // Balance-only / statement-due alerts (no money moved) — ignored only when
+    // no debit/credit action verb is present, so real transactions that carry an
+    // "Avl Lmt / Available Balance" suffix still parse.
+    private val BALANCE_UPDATE_PATTERNS = listOf(
+        Pattern.compile("available\\s+bal", Pattern.CASE_INSENSITIVE),
+        Pattern.compile("\\bavl\\s+bal", Pattern.CASE_INSENSITIVE),
+        Pattern.compile("balance\\s+as\\s+on|bal\\s+as\\s+on", Pattern.CASE_INSENSITIVE),
+        Pattern.compile("as\\s+on\\s+yesterday", Pattern.CASE_INSENSITIVE),
+        Pattern.compile("cheques?\\s+are\\s+subject\\s+to\\s+clearing", Pattern.CASE_INSENSITIVE),
+        Pattern.compile("for\\s+updated\\s+a/c\\s+bal", Pattern.CASE_INSENSITIVE),
+        Pattern.compile("a/c\\s+balance", Pattern.CASE_INSENSITIVE)
+    )
+
+    private val STATEMENT_DUE_PATTERNS = listOf(
+        Pattern.compile("total\\s+due\\s+for\\s+statement", Pattern.CASE_INSENSITIVE),
+        Pattern.compile("\\btotal\\s+due\\b|\\bminimum\\s+due\\b|\\bmin\\s+due\\b", Pattern.CASE_INSENSITIVE),
+        Pattern.compile("statement\\s+(is\\s+generated|due)|payment\\s+due|due\\s+date", Pattern.CASE_INSENSITIVE)
     )
 
     // High-priority merchant extraction patterns (ordered from most specific to general)
@@ -141,6 +194,12 @@ object SmsParser {
             return null
         }
 
+        // Failed, declined, cancelled, and reversed attempts did not produce a posted
+        // transaction and must not enter Pending Review as spending.
+        if (NON_POSTED_PATTERN.matcher(smsBody).find()) {
+            return null
+        }
+
         // 3. Extract Amount (required per specification)
         val amountMatcher = AMOUNT_PATTERN.matcher(smsBody)
         if (!amountMatcher.find()) {
@@ -153,20 +212,35 @@ object SmsParser {
         val currencyCode = normalizeCurrencyToken(amountMatcher.group(1) ?: "INR")
 
         // 4. Check for Financial Action (Debit or Credit)
-        val isDebit = DEBIT_KEYWORDS.any { lower.contains(it) }
-        val isCredit = CREDIT_KEYWORDS.any { lower.contains(it) }
+        val isDebit = DEBIT_ACTION_PATTERNS.any { it.matcher(smsBody).find() }
+        val isCredit = CREDIT_ACTION_PATTERNS.any { it.matcher(smsBody).find() } ||
+                COMPLETED_CREDIT_PATTERN.matcher(smsBody).find()
+
+        // 4a. Ignore pure balance / statement-due alerts (e.g. HDFC daily
+        // "Available Bal ... as on yesterday ... Cheques are subject to clearing").
+        // Gated on no debit/credit verb so real transactions with an
+        // "Avl Lmt / Available Balance" suffix are still kept.
+        if (!isDebit && !isCredit) {
+            if ((BALANCE_UPDATE_PATTERNS + STATEMENT_DUE_PATTERNS).any { it.matcher(smsBody).find() }) {
+                return null
+            }
+        }
+
         val isSenderBank = BANK_SENDER_KEYWORDS.any { senderUpper.contains(it) }
 
-        // If neither debit nor credit keywords found:
-        // If it comes from a bank sender or contains account/card references with an amount, treat as RAW confidence
-        val isRawConfidence = !isDebit && !isCredit
-        if (isRawConfidence && !isSenderBank && !lower.contains("card") && !lower.contains("a/c") && !lower.contains("account")) {
+        // A trusted-looking sender, card/account mention, and amount are only supporting
+        // context. The RAW fallback still requires an explicit transaction term and a
+        // positive completion marker.
+        val isCompletedRawTransaction = !isDebit && !isCredit && isSenderBank &&
+                TRANSACTION_TERM_PATTERN.matcher(smsBody).find() &&
+                COMPLETION_PATTERN.matcher(smsBody).find()
+        if (!isDebit && !isCredit && !isCompletedRawTransaction) {
             return null
         }
 
         val isIncome = isCredit && !isDebit
         val txnType = if (isIncome) TransactionType.INCOME else TransactionType.EXPENSE
-        val confidence = if (isRawConfidence) ParseConfidence.RAW else ParseConfidence.FULL
+        val confidence = if (isCompletedRawTransaction) ParseConfidence.RAW else ParseConfidence.FULL
 
         // 5. Extract Merchant / Payee
         var merchant = extractMerchant(smsBody)
@@ -176,7 +250,7 @@ object SmsParser {
 
         // 6. Detect Payment Mode & Card Last 4
         val cardLast4 = extractCardLastFour(smsBody)
-        val (modeType, modeName) = if (isIncome) null to null else detectPaymentMode(smsBody, sender)
+        val (modeType, modeName) = if (isIncome) null to null else detectPaymentMode(smsBody)
 
         return ParsedSmsTransaction(
             amount = amount,
@@ -235,7 +309,7 @@ object SmsParser {
         return true
     }
 
-    private fun detectPaymentMode(body: String, sender: String?): Pair<PaymentModeType, String> {
+    private fun detectPaymentMode(body: String): Pair<PaymentModeType, String> {
         val lower = body.lowercase()
 
         val isCreditCard = lower.contains("credit card") || lower.contains("creditcard") ||
