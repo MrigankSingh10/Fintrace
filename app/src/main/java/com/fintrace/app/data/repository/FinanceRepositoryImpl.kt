@@ -182,13 +182,18 @@ class FinanceRepositoryImpl(
         val myShareSpentFlow = transactionDao.getTotalMyShareSpentInRangeFlow(startTimestamp, endTimestamp)
         val originalSpentFlow = transactionDao.getTotalOriginalSpentInRangeFlow(startTimestamp, endTimestamp)
         val confirmedIncomeFlow = transactionDao.getTotalConfirmedIncomeInRangeFlow(startTimestamp, endTimestamp)
+        val confirmedNonSalaryIncomeFlow =
+            transactionDao.getTotalConfirmedNonSalaryIncomeInRangeFlow(startTimestamp, endTimestamp)
 
-        return combine(budgetFlow, myShareSpentFlow, originalSpentFlow, confirmedIncomeFlow) { budget, myShareSpent, originalSpent, confirmedIncome ->
-            // A saved budget row wins for the month: it stores the final salary total for
-            // both OVERRIDE and ADD_TO_SMS modes (the ADD amount is already combined into it).
-            // Without a manual row, fall back to the confirmed SMS income.
+        return combine(
+            budgetFlow,
+            myShareSpentFlow,
+            originalSpentFlow,
+            confirmedIncomeFlow,
+            confirmedNonSalaryIncomeFlow
+        ) { budget, myShareSpent, originalSpent, confirmedIncome, confirmedNonSalaryIncome ->
             val isIncomeDerived = confirmedIncome > 0.0
-            val salary = resolveMonthlySalary(confirmedIncome, budget)
+            val salary = resolveMonthlySalary(confirmedIncome, confirmedNonSalaryIncome, budget)
             val remaining = if (salary > 0.0) salary - myShareSpent else 0.0
             val savingsRate = if (salary > 0.0) {
                 ((salary - myShareSpent) / salary) * 100.0
@@ -207,13 +212,6 @@ class FinanceRepositoryImpl(
         }
     }
 
-    private fun resolveMonthlySalary(
-        confirmedIncome: Double,
-        budget: MonthlyBudgetSalaryEntity?
-    ): Double =
-        if (budget != null) budget.salaryAmount
-        else confirmedIncome
-
     override fun getCategoryBreakdown(
         startTimestamp: Long,
         endTimestamp: Long
@@ -221,14 +219,23 @@ class FinanceRepositoryImpl(
         val aggregatesFlow = transactionDao.getCategoryAggregatesInRangeFlow(startTimestamp, endTimestamp)
         val totalSpentFlow = transactionDao.getTotalMyShareSpentInRangeFlow(startTimestamp, endTimestamp)
         val confirmedIncomeFlow = transactionDao.getTotalConfirmedIncomeInRangeFlow(startTimestamp, endTimestamp)
+        val confirmedNonSalaryIncomeFlow =
+            transactionDao.getTotalConfirmedNonSalaryIncomeInRangeFlow(startTimestamp, endTimestamp)
 
         // Extract monthYear from timestamp to get salary for the month
         val dateFormat = java.text.SimpleDateFormat("yyyy-MM", java.util.Locale.getDefault())
         val monthYear = dateFormat.format(java.util.Date(startTimestamp))
         val budgetFlow = monthlyBudgetDao.getBudgetForMonthFlow(monthYear)
 
-        return combine(aggregatesFlow, totalSpentFlow, budgetFlow, confirmedIncomeFlow) { aggregates, _, budget, confirmedIncome ->
-            val salary = resolveMonthlySalary(confirmedIncome, budget)
+        return combine(
+            aggregatesFlow,
+            totalSpentFlow,
+            budgetFlow,
+            confirmedIncomeFlow,
+            confirmedNonSalaryIncomeFlow
+        ) { aggregates, _, budget, confirmedIncome, confirmedNonSalaryIncome ->
+            // Same effective income the dashboard shows, so the denominator never diverges.
+            val salary = resolveMonthlySalary(confirmedIncome, confirmedNonSalaryIncome, budget)
             aggregates.map { raw ->
                 val percentage = if (salary > 0.0) {
                     (raw.totalMyShare / salary) * 100.0
@@ -248,3 +255,28 @@ class FinanceRepositoryImpl(
         }
     }
 }
+
+/**
+ * Effective monthly income used by the dashboard and as the category percentage denominator.
+ *
+ * - No saved budget row: all confirmed income for the month (salary SMS included).
+ * - [SalaryMode.ADD_TO_SMS]: the row already stores the final total, because
+ *   `DashboardViewModel.saveMonthlySalary` saves `currentSalary + amount`. It is used as-is
+ *   so confirmed income is never added a second time.
+ * - [SalaryMode.OVERRIDE]: the manual amount is the salary baseline. Confirmed income that is
+ *   not a salary credit SMS (dividends, refunds, cashback, generic UPI/bank credits, manual
+ *   income rows) is additional income and is added on top. A salary credit SMS is treated as
+ *   the same salary the user already entered and is therefore not added again.
+ */
+internal fun resolveMonthlySalary(
+    confirmedIncome: Double,
+    confirmedNonSalaryIncome: Double,
+    budget: MonthlyBudgetSalaryEntity?
+): Double =
+    when {
+        budget == null -> confirmedIncome
+
+        budget.salaryMode == SalaryMode.ADD_TO_SMS -> budget.salaryAmount
+
+        else -> budget.salaryAmount + confirmedNonSalaryIncome
+    }

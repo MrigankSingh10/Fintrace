@@ -5,8 +5,10 @@ import com.fintrace.app.data.model.ParseConfidence
 import com.fintrace.app.data.model.TransactionType
 import com.fintrace.app.data.sms.SmsParser
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SmsParserTest {
@@ -512,5 +514,45 @@ class SmsParserTest {
             assertEquals(TransactionType.EXPENSE, parsed!!.transactionType)
             assertEquals(ParseConfidence.FULL, parsed.parseConfidence)
         }
+    }
+
+    @Test
+    fun testGenericBankCreditWithUpiReferenceParsedAsIncome() {
+        val sms = "Dear Customer, Acct XX123 is credited with Rs 95218.00 on 26-Sep-26 from XXXXXX UPI:1XXXXXXXXXXX-ICICI Bank."
+        val parsed = SmsParser.parse(sms, "ICICIB")
+
+        assertNotNull(parsed)
+        assertEquals(95218.0, parsed!!.amount, 0.001)
+        assertEquals(TransactionType.INCOME, parsed.transactionType)
+        assertEquals("INR", parsed.currencyCode)
+        assertEquals(ParseConfidence.FULL, parsed.parseConfidence)
+        assertNull(parsed.paymentModeType)
+    }
+
+    @Test
+    fun testGenericCreditHasNoSalaryWordingSoItCountsAsAdditionalIncome() {
+        val generic = SmsParser.parse(
+            "Dear Customer, Acct XX123 is credited with Rs 95218.00 on 26-Sep-26 from XXXXXX UPI:1XXXXXXXXXXX-ICICI Bank.",
+            "ICICIB"
+        )
+        val salary = SmsParser.parse(
+            "ICICI Bank Account XX137 credited with INR 85000.00 as salary on 05-Sep-26. Available balance INR 120000.00.",
+            "ICICIB"
+        )
+        val abbreviatedSalary = SmsParser.parse(
+            "ICICI Bank Acct XX137 credited Rs 85000.00 Sal Credited on 05-Sep-26. UPI:1XXXXXXXXXXX-ICICI Bank.",
+            "ICICIB"
+        )
+
+        assertNotNull(generic)
+        assertNotNull(salary)
+        assertNotNull(abbreviatedSalary)
+
+        // The non-salary income aggregate in TransactionDao excludes rows whose SMS body
+        // matches these wordings, so the manual salary is not counted twice.
+        assertFalse(generic!!.rawBody.contains("salary", ignoreCase = true))
+        assertFalse(generic.rawBody.contains("sal credited", ignoreCase = true))
+        assertTrue(salary!!.rawBody.contains("salary", ignoreCase = true))
+        assertTrue(abbreviatedSalary!!.rawBody.contains("sal credited", ignoreCase = true))
     }
 }

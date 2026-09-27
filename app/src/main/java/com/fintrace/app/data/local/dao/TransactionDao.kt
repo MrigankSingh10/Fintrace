@@ -112,6 +112,33 @@ interface TransactionDao {
     """)
     suspend fun getTotalConfirmedIncomeInRange(startTimestamp: Long, endTimestamp: Long): Double
 
+    /**
+     * Confirmed income that is NOT a salary credit SMS. It is the "additional income" that
+     * gets added on top of a manually entered salary: a credit SMS that mentions the salary
+     * is assumed to represent the very salary the user already entered, so adding it again
+     * would double count. Everything else (dividends, refunds, cashback, generic UPI/bank
+     * credits, and manual income rows which have no SMS body) is additional income.
+     */
+    @Query("""
+        SELECT COALESCE(SUM(my_share_amount), 0.0)
+        FROM transactions
+        WHERE status = 'CONFIRMED'
+          AND type = 'INCOME'
+          AND timestamp >= :startTimestamp
+          AND timestamp <= :endTimestamp
+          AND (
+              smsRawBody IS NULL
+              OR (
+                  LOWER(smsRawBody) NOT LIKE '%salary%'
+                  AND LOWER(smsRawBody) NOT LIKE '%sal credited%'
+              )
+          )
+    """)
+    fun getTotalConfirmedNonSalaryIncomeInRangeFlow(
+        startTimestamp: Long,
+        endTimestamp: Long
+    ): Flow<Double>
+
     @Query("""
         SELECT 
             c.id AS categoryId,
