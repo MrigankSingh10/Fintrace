@@ -60,7 +60,7 @@ object SmsParser {
         Pattern.compile("\\bdeducted\\b", Pattern.CASE_INSENSITIVE),
         Pattern.compile("\\b(?:paid|transferred|sent)\\s+to\\b", Pattern.CASE_INSENSITIVE),
         Pattern.compile(
-            "\\b(?:paid|transferred|sent)\\b\\s+(?:(?:INR|RS\\.?|₹|USD|\\$|EUR|€|GBP|£|AED|SGD|CAD|AUD|JPY|¥)\\s*)?[0-9][0-9,]*(?:\\.[0-9]{1,2})?\\s+to\\b",
+            "\\b(?:paid|transferred|sent)\\b\\s+(?:(?:INR|RS\\.?|₹|USD|\\$|EUR|€|GBP|£|AED|SGD|CAD|AUD|JPY|¥)\\s*)?[0-9][0-9,]*(?:\\.[0-9]{1,2})?(?:\\s+from\\b[\\s\\S]{0,80}?)?\\s+to\\b",
             Pattern.CASE_INSENSITIVE
         ),
         Pattern.compile("\\b(?:txn|transaction)\\s+(?:of|at)\\b", Pattern.CASE_INSENSITIVE),
@@ -92,6 +92,16 @@ object SmsParser {
     private val NON_POSTED_PATTERN = Pattern.compile(
         "\\b(?:failed|declined|cancelled|canceled|unsuccessful|reversed|reversal)\\b",
         Pattern.CASE_INSENSITIVE
+    )
+
+    // Marketing content: sale events, promo codes, and percentage/amount-off offers
+    // quote amounts like transactions but no money ever moves. Matched purely on
+    // content so promotional SMS from any sender is rejected regardless of branding.
+    private val PROMOTIONAL_PATTERNS = listOf(
+        Pattern.compile("\\b[0-9]{1,3}(?:\\.[0-9]{1,2})?\\s*%\\s*off\\b", Pattern.CASE_INSENSITIVE),
+        Pattern.compile("\\b(?:rs\\.?|₹|inr)\\s*[0-9][0-9,]*(?:\\.[0-9]{1,2})?\\s+off\\b", Pattern.CASE_INSENSITIVE),
+        Pattern.compile("\\b(?:your|use|apply|using|promo|coupon|discount|offer|referral|voucher)\\s+code\\b", Pattern.CASE_INSENSITIVE),
+        Pattern.compile("\\bon\\s+sale\\b", Pattern.CASE_INSENSITIVE)
     )
 
     // Senders typically associated with banks / finance alerts
@@ -197,6 +207,12 @@ object SmsParser {
         // Failed, declined, cancelled, and reversed attempts did not produce a posted
         // transaction and must not enter Pending Review as spending.
         if (NON_POSTED_PATTERN.matcher(smsBody).find()) {
+            return null
+        }
+
+        // Sale offers and promo-code campaigns quote amounts but never move money;
+        // rejected on content alone so they cannot be classified as transactions.
+        if (PROMOTIONAL_PATTERNS.any { it.matcher(smsBody).find() }) {
             return null
         }
 

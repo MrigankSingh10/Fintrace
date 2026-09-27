@@ -91,6 +91,21 @@ class SmsParserTest {
     }
 
     @Test
+    fun testHdfcUpiSentFromAccountToPayeeTreatedAsDebit() {
+        val sms = "Sent Rs.167.00\nFrom HDFC Bank A/C *1234\nTo JUSTSWISH\nOn 26/09/26\nRef 1xxxxxxxxx\nNot You?\nCall 18002586161/SMS BLOCK UPI to 7308080808"
+        val parsed = SmsParser.parse(sms, "HDFCBK")
+
+        assertNotNull("Sent-from-account UPI debit must be parsed", parsed)
+        assertEquals(167.0, parsed!!.amount, 0.001)
+        assertEquals("Justswish", parsed.merchant)
+        assertEquals("DEBIT", parsed.paymentModeName)
+        assertEquals(PaymentModeType.BANK_DEBIT, parsed.paymentModeType)
+        assertEquals(TransactionType.EXPENSE, parsed.transactionType)
+        assertEquals(ParseConfidence.FULL, parsed.parseConfidence)
+        assertEquals("INR", parsed.currencyCode)
+    }
+
+    @Test
     fun testIciciDebitPayeeCredited() {
         val sms = "ICICI Bank Acct XX857 debited for Rs 28.00 on 28-Aug-26; Umed Singh Goud credited. UPI:660662384392. Call 18002662 for dispute. SMS BLOCK 857 to 9215676766."
         val parsed = SmsParser.parse(sms, "ICICIB")
@@ -125,15 +140,16 @@ class SmsParserTest {
     }
 
     @Test
-    fun testRawParseConfidenceWhenNoDebitCreditKeywords() {
-        // SMS from a bank sender with an amount, but unusual wording lacking standard debit/credit keywords
+    fun testChargedCardSmsUsesFullConfidence() {
+        // "Charged" is explicit debit evidence, so this must not use the RAW fallback.
         val rawSms = "SBI Bank notice: INR 500.00 charged on your Card ending 1122 at CAFE COFFEE DAY"
         val parsed = SmsParser.parse(rawSms, "SBIBNK")
 
-        assertNotNull("Should parse SMS with detectable amount", parsed)
+        assertNotNull("Charged card SMS should parse", parsed)
         assertEquals(500.0, parsed!!.amount, 0.001)
         assertEquals("1122", parsed.cardLastFour)
         assertEquals(PaymentModeType.CREDIT_CARD, parsed.paymentModeType)
+        assertEquals(ParseConfidence.FULL, parsed.parseConfidence)
     }
 
     @Test
@@ -231,6 +247,10 @@ class SmsParserTest {
         assertNotNull("Real spend with Avl suffix must still parse", parsed)
         assertEquals(1450.0, parsed!!.amount, 0.001)
         assertEquals(TransactionType.EXPENSE, parsed.transactionType)
+        assertEquals(ParseConfidence.FULL, parsed.parseConfidence)
+        assertEquals("INR", parsed.currencyCode)
+        assertEquals(PaymentModeType.CREDIT_CARD, parsed.paymentModeType)
+        assertEquals("4321", parsed.cardLastFour)
     }
 
     @Test
@@ -241,7 +261,12 @@ class SmsParserTest {
 
         assertNotNull("Real credit with balance suffix must still parse", parsed)
         assertEquals(17.0, parsed!!.amount, 0.001)
+        assertEquals("Coal India Ltd", parsed.merchant)
         assertEquals(TransactionType.INCOME, parsed.transactionType)
+        assertEquals(ParseConfidence.FULL, parsed.parseConfidence)
+        assertEquals("INR", parsed.currencyCode)
+        assertNull(parsed.paymentModeType)
+        assertNull(parsed.cardLastFour)
     }
 
     @Test
@@ -272,11 +297,24 @@ class SmsParserTest {
     }
 
     @Test
+    fun testPromotionalSaleOfferWithAmountRejected() {
+        val sms = "Tira ALMOST EVERYTHING ON SALE access is approved\nYour code is NOWORNEVER\nFlat 20% off + Rs.2000 off\npromotions.tirabeauty.com/GK3mDk2"
+
+        assertNull("Sale promo must not be imported even from a bank-like sender",
+            SmsParser.parse(sms, "HDFCBK"))
+        assertNull("Sale promo must not be imported from any sender",
+            SmsParser.parse(sms, "TIRABE"))
+    }
+
+    @Test
     fun testNonPostedTransactionsRejected() {
         assertNull(SmsParser.parse("Transaction of INR 900 on Card XX1122 failed.", "HDFCBK"))
         assertNull(SmsParser.parse("INR 900 was declined on Card XX1122 at SWIGGY.", "HDFCBK"))
         assertNull(SmsParser.parse("Transaction of INR 900 on Card XX1122 was cancelled.", "HDFCBK"))
+        assertNull(SmsParser.parse("Transaction of INR 900 on Card XX1122 was canceled.", "HDFCBK"))
+        assertNull(SmsParser.parse("Transaction of INR 900 on Card XX1122 was unsuccessful.", "HDFCBK"))
         assertNull(SmsParser.parse("Transaction of INR 900 on Card XX1122 was reversed.", "HDFCBK"))
+        assertNull(SmsParser.parse("Reversal of INR 900 for Card XX1122.", "HDFCBK"))
     }
 
     @Test
@@ -285,9 +323,29 @@ class SmsParserTest {
         val refund = SmsParser.parse("Refund of INR 275 has been processed for your card XX1122.", "HDFCBK")
         val salary = SmsParser.parse("Salary of INR 75,000 credited to your Account XX857.", "ICICIB")
 
-        assertEquals(TransactionType.INCOME, cashback?.transactionType)
-        assertEquals(TransactionType.INCOME, refund?.transactionType)
-        assertEquals(TransactionType.INCOME, salary?.transactionType)
+        assertNotNull(cashback)
+        assertEquals(50.0, cashback!!.amount, 0.001)
+        assertEquals(TransactionType.INCOME, cashback.transactionType)
+        assertEquals(ParseConfidence.FULL, cashback.parseConfidence)
+        assertEquals("INR", cashback.currencyCode)
+        assertNull(cashback.paymentModeType)
+        assertNull(cashback.cardLastFour)
+
+        assertNotNull(refund)
+        assertEquals(275.0, refund!!.amount, 0.001)
+        assertEquals(TransactionType.INCOME, refund.transactionType)
+        assertEquals(ParseConfidence.FULL, refund.parseConfidence)
+        assertEquals("INR", refund.currencyCode)
+        assertNull(refund.paymentModeType)
+        assertEquals("1122", refund.cardLastFour)
+
+        assertNotNull(salary)
+        assertEquals(75000.0, salary!!.amount, 0.001)
+        assertEquals(TransactionType.INCOME, salary.transactionType)
+        assertEquals(ParseConfidence.FULL, salary.parseConfidence)
+        assertEquals("INR", salary.currencyCode)
+        assertNull(salary.paymentModeType)
+        assertNull(salary.cardLastFour)
     }
 
     @Test
@@ -298,7 +356,161 @@ class SmsParserTest {
         )
 
         assertNotNull(parsed)
-        assertEquals(ParseConfidence.RAW, parsed!!.parseConfidence)
+        assertEquals(700.0, parsed!!.amount, 0.001)
         assertEquals(TransactionType.EXPENSE, parsed.transactionType)
+        assertEquals(ParseConfidence.RAW, parsed.parseConfidence)
+        assertEquals("INR", parsed.currencyCode)
+        assertEquals(PaymentModeType.CREDIT_CARD, parsed.paymentModeType)
+        assertEquals("Credit Card", parsed.paymentModeName)
+        assertNull(parsed.cardLastFour)
+    }
+
+    @Test
+    fun testPantaloonsCashbackPromotionFromEmulatorIgnored() {
+        val sms = "Your Pantaloons Greencard exclusive offer expires SOOOON!\n\nGet Rs750 cashback on shopping of Rs1500 in one bill\n\nTC. One time offer. Cashback as points on 4Nov"
+
+        assertNull(SmsParser.parse(sms, "5551236"))
+    }
+
+    @Test
+    fun testHdfcStatementDueFromEmulatorIgnored() {
+        val sms = "HDFC Bank Alert: Total due for statement is Rs. 4,320.00 for your Card XX5566"
+
+        assertNull(SmsParser.parse(sms, "5550101"))
+    }
+
+    @Test
+    fun testHdfcAvailableBalanceFromEmulatorIgnored() {
+        val sms = "Available Bal in HDFC Bank A/c XX1235 as on yesterday:22-SEP-26 is INR 6,45,594.38. Cheques are subject to clearing.For updated A/C Bal dial 18002703333."
+
+        assertNull(SmsParser.parse(sms, "5550100"))
+    }
+
+    @Test
+    fun testIciciZeptoDebitFromEmulatorParsed() {
+        val sms = "ICICI Bank Acct XX137 debited for Rs 706.45; Zepto credited."
+        val parsed = SmsParser.parse(sms, "5551236")
+
+        assertNotNull(parsed)
+        assertEquals(706.45, parsed!!.amount, 0.001)
+        assertEquals("Zepto", parsed.merchant)
+        assertEquals(TransactionType.EXPENSE, parsed.transactionType)
+        assertEquals(PaymentModeType.BANK_DEBIT, parsed.paymentModeType)
+        assertEquals("DEBIT", parsed.paymentModeName)
+        assertEquals(ParseConfidence.FULL, parsed.parseConfidence)
+        assertEquals("INR", parsed.currencyCode)
+        assertNull(parsed.cardLastFour)
+    }
+
+    @Test
+    fun testIciciSalaryCreditFromEmulatorParsed() {
+        val sms = "ICICI Bank Account XX137 credited with INR 85000.00 as salary on 05-Sep-26. Available balance INR 120000.00."
+        val parsed = SmsParser.parse(sms, "5551234")
+
+        assertNotNull(parsed)
+        assertEquals(85000.0, parsed!!.amount, 0.001)
+        assertEquals("Bank Credit / Dividend", parsed.merchant)
+        assertEquals(TransactionType.INCOME, parsed.transactionType)
+        assertEquals(ParseConfidence.FULL, parsed.parseConfidence)
+        assertEquals("INR", parsed.currencyCode)
+        assertNull(parsed.paymentModeType)
+        assertNull(parsed.paymentModeName)
+        assertNull(parsed.cardLastFour)
+    }
+
+    @Test
+    fun testIciciDividendCreditFromEmulatorParsed() {
+        val sms = "ICICI Bank Account XX137 credited:Rs. 1250.00 on 05-Sep-26. Info ACH*COAL INDIA LTD*937306. Available Balance is Rs. 963754.24."
+        val parsed = SmsParser.parse(sms, "5551233")
+
+        assertNotNull(parsed)
+        assertEquals(1250.0, parsed!!.amount, 0.001)
+        assertEquals("Coal India Ltd", parsed.merchant)
+        assertEquals(TransactionType.INCOME, parsed.transactionType)
+        assertEquals(ParseConfidence.FULL, parsed.parseConfidence)
+        assertEquals("INR", parsed.currencyCode)
+        assertNull(parsed.paymentModeType)
+        assertNull(parsed.paymentModeName)
+        assertNull(parsed.cardLastFour)
+    }
+
+    @Test
+    fun testBobcardHolaflyTransactionFromEmulatorParsed() {
+        val sms = "Your txn of GBP28.00 AT HOLAFLY WAS SUCCESSFUL ON YOUR BOBCARD SCAPIA Credit Card ending with 1243.Not you? Go to Scapia support on the app or call 1800 2090.-BOBCARD"
+        val parsed = SmsParser.parse(sms, "5551235")
+
+        assertNotNull(parsed)
+        assertEquals(28.0, parsed!!.amount, 0.001)
+        assertEquals("Holafly", parsed.merchant)
+        assertEquals(TransactionType.EXPENSE, parsed.transactionType)
+        assertEquals(PaymentModeType.CREDIT_CARD, parsed.paymentModeType)
+        assertEquals("Credit Card", parsed.paymentModeName)
+        assertEquals(ParseConfidence.FULL, parsed.parseConfidence)
+        assertEquals("GBP", parsed.currencyCode)
+        assertEquals("1243", parsed.cardLastFour)
+    }
+
+    @Test
+    fun testAmexAmazonTransactionFromEmulatorParsed() {
+        val sms = "Alert: You've spent INR 1,004.00 on your AMEX card ** 12345 at AMAZON BD on 10 September 2026 at 08:31 PM IST. Call 18004190691 if this was not made by you."
+        val parsed = SmsParser.parse(sms, "5551231")
+
+        assertNotNull(parsed)
+        assertEquals(1004.0, parsed!!.amount, 0.001)
+        assertEquals("Amazon Bd", parsed.merchant)
+        assertEquals(TransactionType.EXPENSE, parsed.transactionType)
+        assertEquals(PaymentModeType.CREDIT_CARD, parsed.paymentModeType)
+        assertEquals("Credit Card", parsed.paymentModeName)
+        assertEquals(ParseConfidence.FULL, parsed.parseConfidence)
+        assertEquals("INR", parsed.currencyCode)
+        assertEquals("12345", parsed.cardLastFour)
+    }
+
+    @Test
+    fun testHdfcStarbucksTransactionFromEmulatorParsed() {
+        val sms = "Spent Rs. 1223 On HDFC Bank Card 4744 At TATA STARBUCKS PRIVATE\nOn 2026-09-06:21:04:49.Not You? To Block+Reissue Call 1800258616 SMS BLOCK CC 4744 to 1234"
+        val parsed = SmsParser.parse(sms, "5551232")
+
+        assertNotNull(parsed)
+        assertEquals(1223.0, parsed!!.amount, 0.001)
+        assertEquals("Tata Starbucks Private", parsed.merchant)
+        assertEquals(TransactionType.EXPENSE, parsed.transactionType)
+        assertEquals(PaymentModeType.CREDIT_CARD, parsed.paymentModeType)
+        assertEquals("Credit Card", parsed.paymentModeName)
+        assertEquals(ParseConfidence.FULL, parsed.parseConfidence)
+        assertEquals("INR", parsed.currencyCode)
+        assertEquals("4744", parsed.cardLastFour)
+    }
+
+    @Test
+    fun testStandaloneBlockedAmountIgnored() {
+        assertNull(SmsParser.parse("INR 500 blocked on your card.", "HDFCBK"))
+    }
+
+    @Test
+    fun testPrepaidDoesNotMatchPaidAction() {
+        assertNull(SmsParser.parse("Get a prepaid card worth INR 500 today.", "HDFCBK"))
+    }
+
+    @Test
+    fun testCompletedTransactionFromUnknownSenderIgnored() {
+        assertNull(SmsParser.parse("Your card transaction for INR 700 was successful.", "5559999"))
+    }
+
+    @Test
+    fun testDirectedPaymentFormsParsedAsExpenses() {
+        val messages = listOf(
+            "Paid to Zomato INR 100.",
+            "Paid INR 500 to Swiggy.",
+            "Transferred INR 600 to Uber.",
+            "Sent INR 700 to Zepto."
+        )
+
+        messages.forEach { sms ->
+            val parsed = SmsParser.parse(sms, "HDFCBK")
+            assertNotNull("Expected directed payment to parse: $sms", parsed)
+            assertEquals(TransactionType.EXPENSE, parsed!!.transactionType)
+            assertEquals(ParseConfidence.FULL, parsed.parseConfidence)
+        }
     }
 }

@@ -25,9 +25,17 @@ class SmsPendingCleanupTest {
         val promotionalConfirmed = promotionalPending.copy(id = 3, status = TransactionStatus.CONFIRMED)
         val promotionalDismissed = promotionalPending.copy(id = 4, status = TransactionStatus.DISMISSED)
         val manualPending = promotionalPending.copy(id = 5, smsRawBody = null)
+        val blankSmsPending = promotionalPending.copy(id = 6, smsRawBody = "")
 
         val invalid = SmsPendingCleanup.invalidRows(
-            listOf(promotionalPending, validPending, promotionalConfirmed, promotionalDismissed, manualPending)
+            listOf(
+                promotionalPending,
+                validPending,
+                promotionalConfirmed,
+                promotionalDismissed,
+                manualPending,
+                blankSmsPending
+            )
         )
 
         assertEquals(listOf(1L), invalid.map { it.id })
