@@ -18,7 +18,7 @@ These repository screenshots illustrate the app; newer controls may differ from 
 
 - **Review banking alerts:** Import supported SMS formats into Pending Review, then confirm or dismiss them. Dismissed messages stay excluded from rescans and can be restored for review.
 - **Track your share:** Record the full bill and individual split amounts. Spending uses your share; reports retain the original amount.
-- **Budget monthly income:** Confirmed income becomes the month's salary total. Manual salary is a fallback when there is no positive confirmed income total.
+- **Budget monthly income:** Every confirmed income transaction counts, whatever the message wording. A persistent manual adjustment lets you raise or lower the month.
 - **Browse by month:** Navigate history by month and search or filter within the selected period.
 - **Organize expenses:** Manage categories, icons, colors, and payment modes.
 - **Explore spending:** View category charts, payment-mode breakdowns, spending pace, and split amounts owed.
@@ -79,12 +79,12 @@ Use a dedicated emulator for development. Debug and release currently share `com
 | --- | --- |
 | Pending or dismissed SMS | Excluded from financial totals |
 | Confirmed expense | Personal share contributes to spending; full bill is retained for split reporting |
-| Confirmed income | Contributes to monthly salary; category/payment-mode badges are hidden |
-| Manual salary | Used when there is no positive confirmed income total; not added on top of income |
-| In-app category percentage | Category personal-share expense divided by the salary/income denominator |
+| Confirmed income | Contributes to monthly income regardless of wording; category/payment-mode badges are hidden |
+| Manual adjustment | Added to confirmed income and kept for the whole month; may be negative |
+| In-app category percentage | Category personal-share expense divided by the monthly income denominator |
 | Manual transaction | Saving the form currently confirms it directly |
 
-Donut slice sizes and Excel category percentages currently describe shares of spending, while displayed in-app category percentages use salary. See [known limitations](docs/ARCHITECTURE.md#known-limitations-and-next-steps).
+Donut slice sizes and Excel category percentages currently describe shares of spending, while displayed in-app category percentages use monthly income. See [known limitations](docs/ARCHITECTURE.md#known-limitations-and-next-steps).
 
 ## Testing
 

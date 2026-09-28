@@ -51,7 +51,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.fintrace.app.data.local.entity.MonthlyBudgetSalaryEntity
+import com.fintrace.app.data.local.entity.MonthlyBudgetAdjustmentEntity
 import com.fintrace.app.data.local.relation.CategorySpendSummary
 import com.fintrace.app.data.local.relation.MonthlyFinancialSummary
 import com.fintrace.app.data.local.relation.TransactionWithDetails
@@ -59,6 +59,7 @@ import com.fintrace.app.ui.components.CategoryIconBadge
 import com.fintrace.app.ui.components.DualAmountDisplay
 import com.fintrace.app.ui.components.PaymentModeBadge
 import com.fintrace.app.ui.components.formatCurrency
+import com.fintrace.app.ui.components.formatSignedAdjustment
 import com.fintrace.app.ui.components.parseColorHex
 import com.fintrace.app.ui.theme.AccentAmber
 import com.fintrace.app.ui.theme.AccentPurple
@@ -87,7 +88,7 @@ fun DashboardScreen(
     val monthlyBudget by viewModel.monthlyBudget.collectAsState()
     val categories by viewModel.categoryBreakdown.collectAsState()
     val recentTransactions by viewModel.recentTransactions.collectAsState()
-    val isSalaryDialogOpen by viewModel.isSalaryDialogOpen.collectAsState()
+    val isIncomeDialogOpen by viewModel.isIncomeDialogOpen.collectAsState()
 
     val dateFormatter = SimpleDateFormat("dd MMM", Locale.getDefault())
 
@@ -110,7 +111,7 @@ fun DashboardScreen(
         // Hero Financial Overview Card
         HeroFinancialCard(
             summary = summary,
-            onEditSalary = { viewModel.onOpenSalaryDialog() }
+            onEditIncome = { viewModel.onOpenIncomeDialog() }
         )
 
         Spacer(modifier = Modifier.height(14.dp))
@@ -126,7 +127,7 @@ fun DashboardScreen(
         // Quick Actions Grid
         QuickActionsRow(
             onAddExpense = onNavigateToAddTransaction,
-            onSetSalary = { viewModel.onOpenSalaryDialog() },
+            onSetIncome = { viewModel.onOpenIncomeDialog() },
             onManageCategories = onNavigateToCategories,
             onManagePaymentModes = onNavigateToPaymentModes
         )
@@ -153,16 +154,16 @@ fun DashboardScreen(
         Spacer(modifier = Modifier.height(32.dp))
     }
 
-    // Monthly Salary Dialog
-    if (isSalaryDialogOpen) {
-        MonthlySalaryDialog(
-            currentSalary = summary.salaryAmount,
+    // Monthly Income Dialog
+    if (isIncomeDialogOpen) {
+        MonthlyIncomeDialog(
+            currentIncome = summary.monthlyIncome,
             monthName = period.displayName,
-            isIncomeDerived = summary.isIncomeDerived,
             confirmedIncome = summary.confirmedIncome,
+            manualAdjustment = summary.manualAdjustment,
             monthlyBudget = monthlyBudget,
-            onDismiss = { viewModel.onDismissSalaryDialog() },
-            onSave = { amount, mode -> viewModel.saveMonthlySalary(amount, mode) }
+            onDismiss = { viewModel.onDismissIncomeDialog() },
+            onSave = { amount, mode -> viewModel.saveMonthlyIncomeAdjustment(amount, mode) }
         )
     }
 }
@@ -233,11 +234,11 @@ fun MonthSelectorBar(
 @Composable
 fun HeroFinancialCard(
     summary: MonthlyFinancialSummary,
-    onEditSalary: () -> Unit,
+    onEditIncome: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val spendFraction = if (summary.salaryAmount > 0) {
-        (summary.totalMyShareSpent / summary.salaryAmount).toFloat().coerceIn(0f, 1f)
+    val spendFraction = if (summary.monthlyIncome > 0) {
+        (summary.totalMyShareSpent / summary.monthlyIncome).toFloat().coerceIn(0f, 1f)
     } else 0f
 
     val progressColor = when {
@@ -280,14 +281,14 @@ fun HeroFinancialCard(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
 
-                    if (summary.salaryAmount <= 0.0) {
+                    if (summary.monthlyIncome <= 0.0) {
                         TextButton(
-                            onClick = onEditSalary,
+                            onClick = onEditIncome,
                             shape = RoundedCornerShape(8.dp)
                         ) {
                             Icon(imageVector = Icons.Default.Add, contentDescription = null, tint = PrimaryEmerald, modifier = Modifier.size(14.dp))
                             Spacer(modifier = Modifier.width(4.dp))
-                            Text(text = "Set Salary", color = PrimaryEmerald, style = MaterialTheme.typography.labelSmall)
+                            Text(text = "Set Income", color = PrimaryEmerald, style = MaterialTheme.typography.labelSmall)
                         }
                     }
                 }
@@ -319,12 +320,12 @@ fun HeroFinancialCard(
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Text(
-                        text = if (summary.salaryAmount > 0) "${(spendFraction * 100).toInt()}% of budget spent" else "No salary set",
+                        text = if (summary.monthlyIncome > 0) "${(spendFraction * 100).toInt()}% of income spent" else "No income set",
                         style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Text(
-                        text = "${formatCurrency(summary.salaryAmount - summary.totalMyShareSpent)} left",
+                        text = "${formatCurrency(summary.monthlyIncome - summary.totalMyShareSpent)} left",
                         style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp, fontWeight = FontWeight.SemiBold),
                         color = progressColor
                     )
@@ -334,41 +335,46 @@ fun HeroFinancialCard(
                 Divider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
                 Spacer(modifier = Modifier.height(16.dp))
 
-                // 2 Column comparison: Salary vs Spends
+                // 2 Column comparison: Income vs Spends
                 Row(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    // Salary
+                    // Monthly Income. The edit affordance is always available: it must not depend
+                    // on where the income came from (SMS, manual adjustment, or a mix).
                     Column(modifier = Modifier.weight(1f)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
-                                text = "Salary Credited",
+                                text = "Monthly Income",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
-                            if (!summary.isIncomeDerived) {
-                                IconButton(
-                                    onClick = onEditSalary,
-                                    modifier = Modifier.size(24.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Edit,
-                                        contentDescription = "Edit Salary",
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.size(12.dp)
-                                    )
-                                }
+                            IconButton(
+                                onClick = onEditIncome,
+                                modifier = Modifier.size(24.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Edit,
+                                    contentDescription = "Adjust Monthly Income",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(12.dp)
+                                )
                             }
                         }
                         Text(
-                            text = formatCurrency(summary.salaryAmount),
+                            text = formatCurrency(summary.monthlyIncome),
                             style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
                             color = IncomeGreen
                         )
-                        if (summary.isIncomeDerived) {
+                        val incomeCaption = when {
+                            summary.isIncomeDerived -> "From confirmed income"
+                            summary.manualAdjustment != 0.0 ->
+                                "Confirmed ${formatCurrency(summary.confirmedIncome)} · Adjustment ${formatSignedAdjustment(summary.manualAdjustment)}"
+                            else -> null
+                        }
+                        if (incomeCaption != null) {
                             Text(
-                                text = "From confirmed income",
+                                text = incomeCaption,
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -476,7 +482,7 @@ fun SpendingPaceCard(
 @Composable
 fun QuickActionsRow(
     onAddExpense: () -> Unit,
-    onSetSalary: () -> Unit,
+    onSetIncome: () -> Unit,
     onManageCategories: () -> Unit,
     onManagePaymentModes: () -> Unit,
     modifier: Modifier = Modifier
@@ -493,10 +499,10 @@ fun QuickActionsRow(
             modifier = Modifier.weight(1f)
         )
         QuickActionButton(
-            label = "Set Salary",
+            label = "Set Income",
             icon = Icons.Default.Payments,
             accentColor = PrimaryBlue,
-            onClick = onSetSalary,
+            onClick = onSetIncome,
             modifier = Modifier.weight(1f)
         )
         QuickActionButton(

@@ -15,7 +15,7 @@ import com.fintrace.app.data.local.dao.PaymentModeDao
 import com.fintrace.app.data.local.dao.TransactionDao
 import com.fintrace.app.data.local.entity.CardMappingEntity
 import com.fintrace.app.data.local.entity.CategoryEntity
-import com.fintrace.app.data.local.entity.MonthlyBudgetSalaryEntity
+import com.fintrace.app.data.local.entity.MonthlyBudgetAdjustmentEntity
 import com.fintrace.app.data.local.entity.PaymentModeEntity
 import com.fintrace.app.data.local.entity.TransactionEntity
 import com.fintrace.app.data.local.entity.TransactionSplitEntity
@@ -29,7 +29,7 @@ import kotlinx.coroutines.launch
         PaymentModeEntity::class,
         TransactionEntity::class,
         TransactionSplitEntity::class,
-        MonthlyBudgetSalaryEntity::class,
+        MonthlyBudgetAdjustmentEntity::class,
         CardMappingEntity::class
     ],
     version = 4,

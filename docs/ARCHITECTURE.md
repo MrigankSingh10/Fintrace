@@ -36,7 +36,7 @@ Imported SMS starts as `PENDING`. Confirmation makes it eligible for financial q
 
 Transactions reference categories and payment modes and can have multiple split rows. Both `original_amount` and `my_share_amount` are retained. Saving a transaction with splits is a Room transaction.
 
-Expense queries use personal share for spending and full amount for original charges. A positive confirmed-income total takes precedence over manual salary for the month. If that total falls to zero, manual salary becomes the fallback again.
+Expense queries use personal share for spending and full amount for original charges. Monthly income is `confirmed income + manual adjustment`: all confirmed income transactions count regardless of wording, and the manual adjustment stored in `monthly_budgets.salary_amount` is added on top for the whole month. Because the adjustment is persistent rather than a frozen total, later income keeps accumulating, and dismissing an income transaction lowers the month without touching the adjustment.
 
 Income hides category/payment-mode badges, but non-null foreign keys still require internal references. The schema has not yet separated income from those relationships.
 
@@ -57,8 +57,8 @@ These are improvement opportunities, not release commitments.
 - **Parser ambiguity:** Keyword rules do not cover every bank format. Messages containing both debit and credit keywords currently favor expense classification. Card names include specific default mappings.
 - **Duplicate identity:** Body-only matching can collapse legitimate identical messages. Concurrent receiver/scanner imports lack a unique SMS identity constraint.
 - **Confirmation paths:** SMS imports require review; saving the manual/edit form confirms directly. Income editing still needs refinement, including split controls.
-- **Income accounting:** Refund/cashback patterns may become income. Income totals sum personal-share amounts; historical split income requires care. Manual salary returns when confirmed income falls to zero.
-- **Percentages:** In-app category values use salary, while donut geometry and Excel percentages use spending. Multi-month analytics mixes range income with a first-month manual fallback. These rules need an explicit product decision before changes.
+- **Income accounting:** Refund/cashback patterns may become income, and every confirmed income counts whether it arrived by SMS or by hand. Income totals sum personal-share amounts; historical split income requires care. There is no way to exclude one confirmed income from the month other than dismissing it.
+- **Percentages:** In-app category values use monthly income, while donut geometry and Excel percentages use spending. Multi-month analytics mixes range income with a first-month adjustment. These rules need an explicit product decision before changes.
 - **Database upgrades:** Room is version 1 with schema export disabled and destructive migration fallback configured. Future schema changes need explicit, tested migrations before distribution.
 - **Coverage:** Tests cover parser examples, basic arithmetic, month ranges, and status conversion. Database reopen/migration, dismiss/restore integration, and Compose UI tests remain to be added.
 - **Development isolation:** Debug and release share the application ID. A debug suffix is documented but not configured.

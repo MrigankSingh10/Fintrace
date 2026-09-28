@@ -36,42 +36,47 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
-import com.fintrace.app.data.local.entity.MonthlyBudgetSalaryEntity
+import com.fintrace.app.data.local.entity.MonthlyBudgetAdjustmentEntity
 import com.fintrace.app.data.model.SalaryMode
+import com.fintrace.app.ui.components.formatSignedAdjustment
 import com.fintrace.app.ui.theme.PrimaryEmerald
 
 private fun fmt(value: Double): String = String.format("%.0f", value)
 
 @Composable
-fun MonthlySalaryDialog(
-    currentSalary: Double,
+fun MonthlyIncomeDialog(
+    currentIncome: Double,
     monthName: String,
-    isIncomeDerived: Boolean,
     confirmedIncome: Double,
-    monthlyBudget: MonthlyBudgetSalaryEntity?,
+    manualAdjustment: Double,
+    monthlyBudget: MonthlyBudgetAdjustmentEntity?,
     onDismiss: () -> Unit,
     onSave: (Double, SalaryMode) -> Unit
 ) {
+    // The last used mode is restored; it is never reset to OVERRIDE on reopen.
     var selectedMode by remember { mutableStateOf(monthlyBudget?.salaryMode ?: SalaryMode.OVERRIDE) }
-    var salaryText by remember {
-        mutableStateOf(initialSalaryText(monthlyBudget, currentSalary, selectedMode))
+    var amountText by remember {
+        mutableStateOf(initialAmountText(currentIncome, selectedMode))
     }
     var errorText by remember { mutableStateOf<String?>(null) }
 
+    // Mode choices are offered whenever there is income to work with, no matter where that
+    // income came from (SMS, manual row, or a mix).
+    val hasExistingIncome = currentIncome > 0.0
+
     fun applyMode(mode: SalaryMode) {
         selectedMode = mode
-        salaryText = when (mode) {
-            SalaryMode.OVERRIDE ->
-                monthlyBudget?.takeIf { it.salaryAmount > 0 }?.let { fmt(it.salaryAmount) }
-                    ?: if (currentSalary > 0) fmt(currentSalary) else ""
+        amountText = when (mode) {
+            // Prefill the resolved total, never the raw stored adjustment.
+            SalaryMode.OVERRIDE -> if (currentIncome > 0) fmt(currentIncome) else ""
             SalaryMode.ADD_TO_SMS -> ""
         }
     }
 
-    val enteredAmount = salaryText.toDoubleOrNull()
-    val previewSalary = when {
+    val enteredAmount = amountText.toDoubleOrNull()
+    val previewIncome = when {
         enteredAmount == null -> null
-        selectedMode == SalaryMode.ADD_TO_SMS -> currentSalary + enteredAmount
+        selectedMode == SalaryMode.ADD_TO_SMS -> currentIncome + enteredAmount
         else -> enteredAmount
     }
 
@@ -101,7 +106,7 @@ fun MonthlySalaryDialog(
                     )
                     Column {
                         Text(
-                            text = "Set Monthly Salary",
+                            text = "Adjust Monthly Income",
                             style = MaterialTheme.typography.titleLarge,
                             color = MaterialTheme.colorScheme.onSurface
                         )
@@ -116,19 +121,24 @@ fun MonthlySalaryDialog(
                 Spacer(modifier = Modifier.height(16.dp))
 
                 Text(
-                    text = "Current salary: ₹ ${fmt(currentSalary)}",
+                    text = "Current monthly income: ₹ ${fmt(currentIncome)}",
                     style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
                     color = PrimaryEmerald
                 )
 
-                if (isIncomeDerived) {
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = "SMS income detected: ₹ ${fmt(confirmedIncome)}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = buildString {
+                        append("Confirmed income: ₹ ${fmt(confirmedIncome)}")
+                        if (manualAdjustment != 0.0) {
+                            append(" · Adjustment: ${formatSignedAdjustment(manualAdjustment)}")
+                        }
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
 
+                if (hasExistingIncome) {
                     Spacer(modifier = Modifier.height(12.dp))
 
                     Text(
@@ -153,12 +163,12 @@ fun MonthlySalaryDialog(
                         Spacer(modifier = Modifier.width(6.dp))
                         Column {
                             Text(
-                                text = "Override salary",
+                                text = "Override monthly income",
                                 style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
                                 color = MaterialTheme.colorScheme.onSurface
                             )
                             Text(
-                                text = "Monthly salary becomes exactly the amount you enter.",
+                                text = "This month shows exactly the amount you enter. Income confirmed later still adds on top.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -179,12 +189,12 @@ fun MonthlySalaryDialog(
                         Spacer(modifier = Modifier.width(6.dp))
                         Column {
                             Text(
-                                text = "Add to current salary",
+                                text = "Add to current income",
                                 style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
                                 color = MaterialTheme.colorScheme.onSurface
                             )
                             Text(
-                                text = "Current salary (₹ ${fmt(currentSalary)}) plus the amount you enter.",
+                                text = "Current income (₹ ${fmt(currentIncome)}) plus the amount you enter.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -193,7 +203,7 @@ fun MonthlySalaryDialog(
                 } else {
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "Enter the salary credited for this month. Confirmed income will replace this manual amount.",
+                        text = "No income recorded for this month yet. Enter the monthly income to use.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -202,16 +212,16 @@ fun MonthlySalaryDialog(
                 Spacer(modifier = Modifier.height(16.dp))
 
                 OutlinedTextField(
-                    value = salaryText,
+                    value = amountText,
                     onValueChange = {
                         val filtered = it.filter { ch -> ch.isDigit() || ch == '.' }
-                        salaryText = filtered
+                        amountText = filtered
                         if (errorText != null) errorText = null
                     },
                     label = {
                         Text(
-                            if (selectedMode == SalaryMode.ADD_TO_SMS) "Add to current salary"
-                            else "Salary (Override)"
+                            if (selectedMode == SalaryMode.ADD_TO_SMS) "Amount to add"
+                            else "Target monthly income"
                         )
                     },
                     prefix = { Text("₹ ", fontWeight = FontWeight.Bold, color = PrimaryEmerald) },
@@ -225,13 +235,13 @@ fun MonthlySalaryDialog(
                     modifier = Modifier.fillMaxWidth()
                 )
 
-                if (previewSalary != null) {
+                if (previewIncome != null) {
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
                         text = if (selectedMode == SalaryMode.ADD_TO_SMS)
-                            "New salary: ₹ ${fmt(currentSalary)} + ₹ ${fmt(enteredAmount!!)} = ₹ ${fmt(previewSalary)}"
+                            "New monthly income: ₹ ${fmt(currentIncome)} + ₹ ${fmt(enteredAmount!!)} = ₹ ${fmt(previewIncome)}"
                         else
-                            "New salary: ₹ ${fmt(previewSalary)}",
+                            "New monthly income: ₹ ${fmt(previewIncome)}",
                         style = MaterialTheme.typography.bodyMedium.copy(
                             fontWeight = FontWeight.SemiBold,
                             color = PrimaryEmerald
@@ -247,10 +257,10 @@ fun MonthlySalaryDialog(
                     val chipValues = if (selectedMode == SalaryMode.ADD_TO_SMS)
                         listOf(5000.0 to "+5k", 10000.0 to "+10k", 25000.0 to "+25k")
                     else
-                        listOf(50000.0 to "+50k", 100000.0 to "100k", 150000.0 to "150k")
+                        listOf(50000.0 to "50k", 100000.0 to "100k", 150000.0 to "150k")
                     chipValues.forEach { (amount, label) ->
                         OutlinedButton(
-                            onClick = { salaryText = fmt(amount) },
+                            onClick = { amountText = fmt(amount) },
                             contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
                             shape = RoundedCornerShape(8.dp),
                             modifier = Modifier.weight(1f)
@@ -273,7 +283,7 @@ fun MonthlySalaryDialog(
                     Spacer(modifier = Modifier.width(12.dp))
                     Button(
                         onClick = {
-                            val parsed = salaryText.toDoubleOrNull()
+                            val parsed = amountText.toDoubleOrNull()
                             if (parsed == null || parsed < 0.0) {
                                 errorText = "Please enter a valid amount"
                             } else {
@@ -292,13 +302,11 @@ fun MonthlySalaryDialog(
     }
 }
 
-private fun initialSalaryText(
-    monthlyBudget: MonthlyBudgetSalaryEntity?,
-    currentSalary: Double,
+private fun initialAmountText(
+    currentIncome: Double,
     selectedMode: SalaryMode
 ): String = when (selectedMode) {
-    SalaryMode.OVERRIDE ->
-        monthlyBudget?.takeIf { it.salaryAmount > 0 }?.let { fmt(it.salaryAmount) }
-            ?: if (currentSalary > 0) fmt(currentSalary) else ""
+    // Never prefill the stored adjustment: that value is not a target total.
+    SalaryMode.OVERRIDE -> if (currentIncome > 0) fmt(currentIncome) else ""
     SalaryMode.ADD_TO_SMS -> ""
 }

@@ -20,7 +20,7 @@ For UI changes, include screenshots with fictional data and check both themes. S
 - Preserve full-bill versus personal-share amounts.
 - Exclude pending and dismissed records from financial totals.
 - Check month boundaries and device time zones when changing date filtering.
-- Discuss changes to salary denominators explicitly.
+- Discuss changes to the monthly income denominator explicitly.
 - Schema changes need tested migrations that preserve existing records; a reset is not an upgrade solution.
 
 ## SMS parser contributions

@@ -1,7 +1,7 @@
 package com.fintrace.app.data.repository
 
 import com.fintrace.app.data.local.entity.CategoryEntity
-import com.fintrace.app.data.local.entity.MonthlyBudgetSalaryEntity
+import com.fintrace.app.data.local.entity.MonthlyBudgetAdjustmentEntity
 import com.fintrace.app.data.local.entity.PaymentModeEntity
 import com.fintrace.app.data.local.entity.TransactionEntity
 import com.fintrace.app.data.local.entity.TransactionSplitEntity
@@ -49,9 +49,20 @@ interface FinanceRepository {
     suspend fun deleteCardMapping(cardMapping: com.fintrace.app.data.local.entity.CardMappingEntity)
     suspend fun getCardMappingByLastFour(lastFour: String): com.fintrace.app.data.local.entity.CardMappingEntity?
 
-    // Monthly Budget & Analytics
-    fun getBudgetForMonth(monthYear: String): Flow<MonthlyBudgetSalaryEntity?>
-    suspend fun setMonthlySalary(monthYear: String, salary: Double, notes: String? = null, salaryMode: SalaryMode = SalaryMode.OVERRIDE)
+    // Monthly Income & Analytics
+    fun getBudgetForMonth(monthYear: String): Flow<MonthlyBudgetAdjustmentEntity?>
+
+    /**
+     * Persists the user's manual adjustment to the month's confirmed income. It is not a total:
+     * the effective monthly income stays `confirmed income + adjustment`.
+     */
+    suspend fun setMonthlyIncomeAdjustment(
+        monthYear: String,
+        manualAdjustment: Double,
+        notes: String? = null,
+        mode: SalaryMode = SalaryMode.OVERRIDE
+    )
+
     fun getMonthlyFinancialSummary(monthYear: String, startTimestamp: Long, endTimestamp: Long): Flow<MonthlyFinancialSummary>
     fun getCategoryBreakdown(startTimestamp: Long, endTimestamp: Long): Flow<List<CategorySpendSummary>>
 }

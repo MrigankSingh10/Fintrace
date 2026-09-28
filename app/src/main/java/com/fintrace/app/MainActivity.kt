@@ -75,6 +75,7 @@ fun MainScreen(
 
     val isMainTab = currentRoute in Screen.bottomNavItems.map { it.route }
     val pendingSmsCount by app.repository.getPendingCount().collectAsState(initial = 0)
+    val incomeModelReady by app.incomeModelReady.collectAsState()
 
     Scaffold(
         topBar = {
@@ -122,10 +123,14 @@ fun MainScreen(
             }
         }
     ) { paddingValues ->
-        AppNavGraph(
-            navController = navController,
-            repository = app.repository,
-            modifier = Modifier.padding(paddingValues)
-        )
+        // Screens below read monthly_budgets with adjustment semantics, so they are only mounted
+        // once the one-time legacy conversion has finished.
+        if (incomeModelReady) {
+            AppNavGraph(
+                navController = navController,
+                repository = app.repository,
+                modifier = Modifier.padding(paddingValues)
+            )
+        }
     }
 }

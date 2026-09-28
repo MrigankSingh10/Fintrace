@@ -2,12 +2,14 @@ package com.fintrace.app.ui.dashboard
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.fintrace.app.data.local.entity.MonthlyBudgetSalaryEntity
+import com.fintrace.app.data.local.entity.MonthlyBudgetAdjustmentEntity
 import com.fintrace.app.data.local.relation.CategorySpendSummary
 import com.fintrace.app.data.local.relation.MonthlyFinancialSummary
 import com.fintrace.app.data.local.relation.TransactionWithDetails
 import com.fintrace.app.data.model.SalaryMode
 import com.fintrace.app.data.repository.FinanceRepository
+import com.fintrace.app.data.repository.additiveAdjustment
+import com.fintrace.app.data.repository.overrideAdjustment
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -51,11 +53,11 @@ class DashboardViewModel(
         initialValue = computeMonthPeriod(Calendar.getInstance())
     )
 
-    private val _isSalaryDialogOpen = MutableStateFlow(false)
-    val isSalaryDialogOpen: StateFlow<Boolean> = _isSalaryDialogOpen.asStateFlow()
+    private val _isIncomeDialogOpen = MutableStateFlow(false)
+    val isIncomeDialogOpen: StateFlow<Boolean> = _isIncomeDialogOpen.asStateFlow()
 
     @OptIn(ExperimentalCoroutinesApi::class)
-    val monthlyBudget: StateFlow<MonthlyBudgetSalaryEntity?> = selectedPeriod.flatMapLatest { period ->
+    val monthlyBudget: StateFlow<MonthlyBudgetAdjustmentEntity?> = selectedPeriod.flatMapLatest { period ->
         repository.getBudgetForMonth(period.monthYearKey)
     }.stateIn(
         scope = viewModelScope,
@@ -75,7 +77,7 @@ class DashboardViewModel(
         started = SharingStarted.WhileSubscribed(5000),
         initialValue = MonthlyFinancialSummary(
             monthYear = "",
-            salaryAmount = 0.0,
+            monthlyIncome = 0.0,
             totalMyShareSpent = 0.0,
             totalOriginalSpent = 0.0,
             remainingBalance = 0.0
@@ -117,33 +119,48 @@ class DashboardViewModel(
         _currentCalendar.value = Calendar.getInstance()
     }
 
-    fun onOpenSalaryDialog() {
-        _isSalaryDialogOpen.value = true
+    fun onOpenIncomeDialog() {
+        _isIncomeDialogOpen.value = true
     }
 
-    fun onDismissSalaryDialog() {
-        _isSalaryDialogOpen.value = false
+    fun onDismissIncomeDialog() {
+        _isIncomeDialogOpen.value = false
     }
 
-    fun saveMonthlySalary(amount: Double, salaryMode: SalaryMode = SalaryMode.OVERRIDE) {
+    /**
+     * Persists the user's manual adjustment for the selected month.
+     *
+     * OVERRIDE sets the current total to [amount] without freezing it: the stored adjustment is
+     * recalculated against confirmed income, so income confirmed later keeps accumulating.
+     * ADD only increments the existing adjustment - it must never store a snapshot of the
+     * resolved total.
+     */
+    fun saveMonthlyIncomeAdjustment(amount: Double, mode: SalaryMode = SalaryMode.OVERRIDE) {
         viewModelScope.launch {
             val period = selectedPeriod.value
-            val currentSalary = monthlySummary.value.salaryAmount
-            val total = when (salaryMode) {
-                SalaryMode.OVERRIDE -> amount
-                SalaryMode.ADD_TO_SMS -> currentSalary + amount
+            val summary = monthlySummary.value
+            val newAdjustment = when (mode) {
+                SalaryMode.OVERRIDE -> overrideAdjustment(
+                    targetIncome = amount,
+                    confirmedIncome = summary.confirmedIncome
+                )
+
+                SalaryMode.ADD_TO_SMS -> additiveAdjustment(
+                    existingAdjustment = summary.manualAdjustment,
+                    amountToAdd = amount
+                )
             }
-            repository.setMonthlySalary(
+            repository.setMonthlyIncomeAdjustment(
                 monthYear = period.monthYearKey,
-                salary = total,
-                notes = if (salaryMode == SalaryMode.ADD_TO_SMS) {
-                    "Added ${String.format("%.0f", amount)} to the salary of ${period.displayName}"
+                manualAdjustment = newAdjustment,
+                notes = if (mode == SalaryMode.ADD_TO_SMS) {
+                    "Added ${String.format("%.0f", amount)} to the income of ${period.displayName}"
                 } else {
-                    "Manual salary for ${period.displayName}"
+                    "Manual income adjustment for ${period.displayName}"
                 },
-                salaryMode = salaryMode
+                mode = mode
             )
-            onDismissSalaryDialog()
+            onDismissIncomeDialog()
         }
     }
 
