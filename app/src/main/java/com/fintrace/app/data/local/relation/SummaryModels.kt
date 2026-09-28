@@ -13,11 +13,16 @@ data class CategorySpendSummary(
 
 data class MonthlyFinancialSummary(
     val monthYear: String,
-    val salaryAmount: Double,
+    /** Effective monthly income: [confirmedIncome] + [manualAdjustment]. */
+    val monthlyIncome: Double,
     val totalMyShareSpent: Double,
     val totalOriginalSpent: Double,
     val remainingBalance: Double,
     val savingsRatePercentage: Double = 0.0,
+    /** Descriptive only - never gates whether income can be edited. */
     val isIncomeDerived: Boolean = false,
-    val confirmedIncome: Double = 0.0
+    /** Sum of every CONFIRMED INCOME transaction in the month. */
+    val confirmedIncome: Double = 0.0,
+    /** User-controlled adjustment stored in `monthly_budgets.salary_amount`. */
+    val manualAdjustment: Double = 0.0
 )

@@ -68,7 +68,7 @@ class FinanceCalculationTest {
 
     @Test
     fun testMonthlyRemainingBalanceMath() {
-        val salary = 100000.0
+        val monthlyIncome = 100000.0
 
         // 3 expenses:
         // 1: Rent (Solo) -> original 25000, my share 25000
@@ -82,7 +82,7 @@ class FinanceCalculationTest {
 
         val totalOriginalCharged = transactions.sumOf { it.originalAmount }
         val totalMyShareSpent = transactions.sumOf { it.myShareAmount }
-        val remainingBalance = salary - totalMyShareSpent
+        val remainingBalance = monthlyIncome - totalMyShareSpent
 
         assertEquals(35000.0, totalOriginalCharged, 0.001)
         assertEquals(29000.0, totalMyShareSpent, 0.001)

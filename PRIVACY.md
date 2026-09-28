@@ -4,7 +4,7 @@ This describes the repository's current implementation, not a hosted service.
 
 ## Stored information
 
-Fintrace stores transactions, categories, payment modes, split participants, salary settings, and transaction status in a Room database in Android app storage. Imported transactions retain the SMS body, sender, and timestamp. Theme choice is stored in preferences.
+Fintrace stores transactions, categories, payment modes, split participants, monthly income settings, and transaction status in a Room database in Android app storage. Imported transactions retain the SMS body, sender, and timestamp. Theme choice is stored in preferences.
 
 Dismissed messages remain stored so rescans recognize them. Restore returns them to Pending Review. Neither action changes the original SMS in the device's messaging app.
 

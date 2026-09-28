@@ -7,7 +7,7 @@ import com.fintrace.app.data.local.dao.PaymentModeDao
 import com.fintrace.app.data.local.dao.TransactionDao
 import com.fintrace.app.data.local.entity.CardMappingEntity
 import com.fintrace.app.data.local.entity.CategoryEntity
-import com.fintrace.app.data.local.entity.MonthlyBudgetSalaryEntity
+import com.fintrace.app.data.local.entity.MonthlyBudgetAdjustmentEntity
 import com.fintrace.app.data.local.entity.PaymentModeEntity
 import com.fintrace.app.data.local.entity.TransactionEntity
 import com.fintrace.app.data.local.entity.TransactionSplitEntity
@@ -158,16 +158,21 @@ class FinanceRepositoryImpl(
         transactionDao.getTransactionBySmsBody(smsBody) != null
 
 
-    // --- Monthly Budget & Analytics ---
-    override fun getBudgetForMonth(monthYear: String): Flow<MonthlyBudgetSalaryEntity?> =
+    // --- Monthly Income & Analytics ---
+    override fun getBudgetForMonth(monthYear: String): Flow<MonthlyBudgetAdjustmentEntity?> =
         monthlyBudgetDao.getBudgetForMonthFlow(monthYear)
 
-    override suspend fun setMonthlySalary(monthYear: String, salary: Double, notes: String?, salaryMode: SalaryMode) {
+    override suspend fun setMonthlyIncomeAdjustment(
+        monthYear: String,
+        manualAdjustment: Double,
+        notes: String?,
+        mode: SalaryMode
+    ) {
         monthlyBudgetDao.upsertBudget(
-            MonthlyBudgetSalaryEntity(
+            MonthlyBudgetAdjustmentEntity(
                 monthYear = monthYear,
-                salaryAmount = salary,
-                salaryMode = salaryMode,
+                salaryAmount = manualAdjustment,
+                salaryMode = mode,
                 notes = notes
             )
         )
@@ -184,35 +189,25 @@ class FinanceRepositoryImpl(
         val confirmedIncomeFlow = transactionDao.getTotalConfirmedIncomeInRangeFlow(startTimestamp, endTimestamp)
 
         return combine(budgetFlow, myShareSpentFlow, originalSpentFlow, confirmedIncomeFlow) { budget, myShareSpent, originalSpent, confirmedIncome ->
-            // A saved budget row wins for the month: it stores the final salary total for
-            // both OVERRIDE and ADD_TO_SMS modes (the ADD amount is already combined into it).
-            // Without a manual row, fall back to the confirmed SMS income.
-            val isIncomeDerived = confirmedIncome > 0.0
-            val salary = resolveMonthlySalary(confirmedIncome, budget)
-            val remaining = if (salary > 0.0) salary - myShareSpent else 0.0
-            val savingsRate = if (salary > 0.0) {
-                ((salary - myShareSpent) / salary) * 100.0
+            val monthlyIncome = resolveMonthlyIncome(confirmedIncome, budget)
+            val remaining = if (monthlyIncome > 0.0) monthlyIncome - myShareSpent else 0.0
+            val savingsRate = if (monthlyIncome > 0.0) {
+                ((monthlyIncome - myShareSpent) / monthlyIncome) * 100.0
             } else 0.0
 
             MonthlyFinancialSummary(
                 monthYear = monthYear,
-                salaryAmount = salary,
+                monthlyIncome = monthlyIncome,
                 totalMyShareSpent = myShareSpent,
                 totalOriginalSpent = originalSpent,
                 remainingBalance = remaining,
                 savingsRatePercentage = savingsRate.coerceAtLeast(0.0),
-                isIncomeDerived = isIncomeDerived,
-                confirmedIncome = confirmedIncome
+                isIncomeDerived = isIncomeDerived(confirmedIncome, budget),
+                confirmedIncome = confirmedIncome,
+                manualAdjustment = budget?.salaryAmount ?: 0.0
             )
         }
     }
-
-    private fun resolveMonthlySalary(
-        confirmedIncome: Double,
-        budget: MonthlyBudgetSalaryEntity?
-    ): Double =
-        if (budget != null) budget.salaryAmount
-        else confirmedIncome
 
     override fun getCategoryBreakdown(
         startTimestamp: Long,
@@ -222,16 +217,17 @@ class FinanceRepositoryImpl(
         val totalSpentFlow = transactionDao.getTotalMyShareSpentInRangeFlow(startTimestamp, endTimestamp)
         val confirmedIncomeFlow = transactionDao.getTotalConfirmedIncomeInRangeFlow(startTimestamp, endTimestamp)
 
-        // Extract monthYear from timestamp to get salary for the month
+        // Extract monthYear from timestamp to get the month's income for the month
         val dateFormat = java.text.SimpleDateFormat("yyyy-MM", java.util.Locale.getDefault())
         val monthYear = dateFormat.format(java.util.Date(startTimestamp))
         val budgetFlow = monthlyBudgetDao.getBudgetForMonthFlow(monthYear)
 
         return combine(aggregatesFlow, totalSpentFlow, budgetFlow, confirmedIncomeFlow) { aggregates, _, budget, confirmedIncome ->
-            val salary = resolveMonthlySalary(confirmedIncome, budget)
+            // Same effective income the dashboard shows, so the denominator never diverges.
+            val monthlyIncome = resolveMonthlyIncome(confirmedIncome, budget)
             aggregates.map { raw ->
-                val percentage = if (salary > 0.0) {
-                    (raw.totalMyShare / salary) * 100.0
+                val percentage = if (monthlyIncome > 0.0) {
+                    (raw.totalMyShare / monthlyIncome) * 100.0
                 } else 0.0
 
                 CategorySpendSummary(
