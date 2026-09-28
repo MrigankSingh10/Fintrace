@@ -62,19 +62,6 @@ fun formatCurrency(amount: Double, currencyCode: String = "INR"): String {
     }
 }
 
-/**
- * Formats a manual adjustment with an explicit sign so a lowered month never renders as
- * "₹-20,000.00": positives get "+", negatives use a real minus sign, and zero stays unsigned.
- */
-fun formatSignedAdjustment(amount: Double, currencyCode: String = "INR"): String {
-    val magnitude = formatCurrency(kotlin.math.abs(amount), currencyCode)
-    return when {
-        amount > 0.0 -> "+$magnitude"
-        amount < 0.0 -> "\u2212$magnitude"
-        else -> magnitude
-    }
-}
-
 @Composable
 fun DualAmountDisplay(
     originalAmount: Double,

@@ -59,7 +59,6 @@ import com.fintrace.app.ui.components.CategoryIconBadge
 import com.fintrace.app.ui.components.DualAmountDisplay
 import com.fintrace.app.ui.components.PaymentModeBadge
 import com.fintrace.app.ui.components.formatCurrency
-import com.fintrace.app.ui.components.formatSignedAdjustment
 import com.fintrace.app.ui.components.parseColorHex
 import com.fintrace.app.ui.theme.AccentAmber
 import com.fintrace.app.ui.theme.AccentPurple
@@ -159,8 +158,6 @@ fun DashboardScreen(
         MonthlyIncomeDialog(
             currentIncome = summary.monthlyIncome,
             monthName = period.displayName,
-            confirmedIncome = summary.confirmedIncome,
-            manualAdjustment = summary.manualAdjustment,
             monthlyBudget = monthlyBudget,
             onDismiss = { viewModel.onDismissIncomeDialog() },
             onSave = { amount, mode -> viewModel.saveMonthlyIncomeAdjustment(amount, mode) }
@@ -340,8 +337,9 @@ fun HeroFinancialCard(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    // Monthly Income. The edit affordance is always available: it must not depend
-                    // on where the income came from (SMS, manual adjustment, or a mix).
+                    // Monthly Income. Only the resolved total is shown: the confirmed/adjustment
+                    // split is an internal accounting detail. The edit affordance is always
+                    // available and never depends on where the income came from.
                     Column(modifier = Modifier.weight(1f)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
@@ -366,19 +364,6 @@ fun HeroFinancialCard(
                             style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
                             color = IncomeGreen
                         )
-                        val incomeCaption = when {
-                            summary.isIncomeDerived -> "From confirmed income"
-                            summary.manualAdjustment != 0.0 ->
-                                "Confirmed ${formatCurrency(summary.confirmedIncome)} · Adjustment ${formatSignedAdjustment(summary.manualAdjustment)}"
-                            else -> null
-                        }
-                        if (incomeCaption != null) {
-                            Text(
-                                text = incomeCaption,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
                     }
 
                     // Total Spent (My Share)

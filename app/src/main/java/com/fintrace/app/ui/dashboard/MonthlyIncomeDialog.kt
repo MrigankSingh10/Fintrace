@@ -38,7 +38,6 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import com.fintrace.app.data.local.entity.MonthlyBudgetAdjustmentEntity
 import com.fintrace.app.data.model.SalaryMode
-import com.fintrace.app.ui.components.formatSignedAdjustment
 import com.fintrace.app.ui.theme.PrimaryEmerald
 
 private fun fmt(value: Double): String = String.format("%.0f", value)
@@ -47,8 +46,6 @@ private fun fmt(value: Double): String = String.format("%.0f", value)
 fun MonthlyIncomeDialog(
     currentIncome: Double,
     monthName: String,
-    confirmedIncome: Double,
-    manualAdjustment: Double,
     monthlyBudget: MonthlyBudgetAdjustmentEntity?,
     onDismiss: () -> Unit,
     onSave: (Double, SalaryMode) -> Unit
@@ -124,18 +121,6 @@ fun MonthlyIncomeDialog(
                     text = "Current monthly income: ₹ ${fmt(currentIncome)}",
                     style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
                     color = PrimaryEmerald
-                )
-
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = buildString {
-                        append("Confirmed income: ₹ ${fmt(confirmedIncome)}")
-                        if (manualAdjustment != 0.0) {
-                            append(" · Adjustment: ${formatSignedAdjustment(manualAdjustment)}")
-                        }
-                    },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
 
                 if (hasExistingIncome) {
