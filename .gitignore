@@ -73,3 +73,11 @@ captures/
 !gradle/wrapper/gradle-wrapper.properties
 TESTING_GUIDE.md
 images/
+
+# Local AI agent and planning configuration
+.codex/
+.opencode/
+AGENTS.md
+docs/AGENT_MODELS.md
+implementation_plan.md
+opencode.json

@@ -65,6 +65,7 @@ class FinanceTrackerApp : Application() {
         normalizeLegacyIncomeAdjustments()
         backfillTransactionParses()
         cleanupInvalidPendingSmsImports()
+        materializeRecurringTransactions()
     }
 
     /**
@@ -160,7 +161,7 @@ class FinanceTrackerApp : Application() {
                         }
                         updated = updated.copy(paymentModeId = modeId)
                     }
-                    txDao.updateTransaction(updated)
+                    txDao.updateTransactionPreservingCategory(updated)
                 }
                 prefs.edit().putBoolean("done", true).apply()
             }
@@ -186,6 +187,13 @@ class FinanceTrackerApp : Application() {
                 }
                 prefs.edit().putBoolean(cleanupKey, true).apply()
             }
+        }
+    }
+
+    /** Keeps one future monthly occurrence available without alarms or background scheduling. */
+    private fun materializeRecurringTransactions() {
+        applicationScope.launch {
+            runCatching { repository.materializeMonthlyRecurringTransactions() }
         }
     }
 

@@ -5,12 +5,19 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Category
-import androidx.compose.material.icons.filled.CreditCard
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.DarkMode
+import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.LightMode
+import androidx.compose.material.icons.filled.MarkEmailUnread
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -19,20 +26,25 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.FabPosition
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.Saver
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.ui.Modifier
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.NavGraph.Companion.findStartDestination
 import com.fintrace.app.ui.navigation.AppBottomNavBar
 import com.fintrace.app.ui.navigation.AppNavGraph
 import com.fintrace.app.ui.navigation.Screen
 import com.fintrace.app.ui.theme.FinanceTrackerTheme
+import java.time.YearMonth
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -73,9 +85,17 @@ fun MainScreen(
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
 
-    val isMainTab = currentRoute in Screen.bottomNavItems.map { it.route }
+    val isMainTab = currentRoute in Screen.primaryTabs.map { it.route }
     val pendingSmsCount by app.repository.getPendingCount().collectAsState(initial = 0)
     val incomeModelReady by app.incomeModelReady.collectAsState()
+    var sharedMonth by rememberSaveable(
+        stateSaver = Saver<YearMonth, String>(
+            save = { it.toString() },
+            restore = { YearMonth.parse(it) }
+        )
+    ) { mutableStateOf(YearMonth.now()) }
+    var exportRequest by rememberSaveable { mutableStateOf(0) }
+    var menuExpanded by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -83,42 +103,76 @@ fun MainScreen(
                 TopAppBar(
                     title = {
                         Text(
-                            text = "Finance Tracker",
+                            text = when (currentRoute) {
+                                Screen.Transactions.route -> "Transactions"
+                                Screen.Analytics.route -> "Analytics"
+                                else -> "Fintrace"
+                            },
                             style = MaterialTheme.typography.titleLarge
                         )
                     },
                     actions = {
-                        IconButton(onClick = onThemeToggle) {
-                            Icon(
-                                imageVector = if (isDarkTheme) Icons.Default.LightMode else Icons.Default.DarkMode,
-                                contentDescription = if (isDarkTheme) "Switch to light theme" else "Switch to dark theme"
-                            )
+                        IconButton(onClick = { menuExpanded = true }) {
+                            Icon(Icons.Default.MoreVert, contentDescription = "More options")
                         }
-                        IconButton(onClick = { navController.navigate(Screen.Categories.route) }) {
-                            Icon(
-                                imageVector = Icons.Default.Category,
-                                contentDescription = "Manage Categories"
+                        DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
+                            DropdownMenuItem(
+                                text = { Text("Settings") },
+                                leadingIcon = { Icon(Icons.Default.Settings, contentDescription = null) },
+                                onClick = { menuExpanded = false; navController.navigate(Screen.Settings.route) }
                             )
-                        }
-                        IconButton(onClick = { navController.navigate(Screen.PaymentModes.route) }) {
-                            Icon(
-                                imageVector = Icons.Default.CreditCard,
-                                contentDescription = "Manage Payment Modes"
+                            DropdownMenuItem(
+                                text = { Text("Export report") },
+                                leadingIcon = { Icon(Icons.Default.FileDownload, contentDescription = null) },
+                                onClick = {
+                                    menuExpanded = false
+                                    exportRequest += 1
+                                    if (currentRoute != Screen.Analytics.route) {
+                                        navController.navigate(Screen.Analytics.route) {
+                                            popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                                            launchSingleTop = true
+                                            restoreState = true
+                                        }
+                                    }
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text(if (isDarkTheme) "Light theme" else "Dark theme") },
+                                leadingIcon = {
+                                    Icon(if (isDarkTheme) Icons.Default.LightMode else Icons.Default.DarkMode, contentDescription = null)
+                                },
+                                onClick = { menuExpanded = false; onThemeToggle() }
+                            )
+                            DropdownMenuItem(
+                                text = { Text(if (pendingSmsCount > 0) "SMS Review ($pendingSmsCount)" else "SMS Review") },
+                                leadingIcon = { Icon(Icons.Default.MarkEmailUnread, contentDescription = null) },
+                                onClick = { menuExpanded = false; navController.navigate(Screen.SmsInbox.route) }
                             )
                         }
                     },
                     colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = MaterialTheme.colorScheme.background,
-                        titleContentColor = MaterialTheme.colorScheme.onBackground
+                        containerColor = MaterialTheme.colorScheme.surface,
+                        titleContentColor = MaterialTheme.colorScheme.onSurface
                     )
                 )
             }
         },
+        floatingActionButton = {
+            if (isMainTab) {
+                ExtendedFloatingActionButton(
+                    onClick = { navController.navigate(Screen.AddTransaction.createRoute(0L)) },
+                    icon = { Icon(Icons.Default.Add, contentDescription = null) },
+                    text = { Text("Add") },
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary
+                )
+            }
+        },
+        floatingActionButtonPosition = FabPosition.Center,
         bottomBar = {
             if (isMainTab) {
                 AppBottomNavBar(
-                    navController = navController,
-                    pendingSmsCount = pendingSmsCount
+                    navController = navController
                 )
             }
         }
@@ -129,7 +183,14 @@ fun MainScreen(
             AppNavGraph(
                 navController = navController,
                 repository = app.repository,
-                modifier = Modifier.padding(paddingValues)
+                modifier = Modifier.padding(paddingValues).consumeWindowInsets(paddingValues),
+                sharedMonth = sharedMonth,
+                onSharedMonthSelected = { sharedMonth = it },
+                isDarkTheme = isDarkTheme,
+                onThemeToggle = onThemeToggle,
+                exportRequest = exportRequest,
+                onRequestExport = { exportRequest += 1 },
+                onExportRequestConsumed = { exportRequest = 0 }
             )
         }
     }

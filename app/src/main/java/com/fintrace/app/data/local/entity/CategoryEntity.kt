@@ -1,5 +1,6 @@
 package com.fintrace.app.data.local.entity
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
@@ -15,5 +16,7 @@ data class CategoryEntity(
     val colorHex: String,
     val iconName: String = "Category",
     val isDefault: Boolean = false,
-    val displayOrder: Int = 0
+    val displayOrder: Int = 0,
+    @ColumnInfo(name = "budget_amount")
+    val budgetAmount: Double? = null
 )

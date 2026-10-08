@@ -19,26 +19,55 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.combine
+import com.fintrace.app.data.model.TransactionStatus
 
 data class SmsInboxUiState(
     val isScanning: Boolean = false,
     val scanResult: SmsScanResult? = null,
     val showPermissionRationale: Boolean = false,
     val statusMessage: String? = null,
-    val showingDismissed: Boolean = false
+    val showingDismissed: Boolean = false,
+    val actionError: String? = null,
+    val pendingLoaded: Boolean = false
 )
+
+enum class PendingAction { CONFIRM, DISMISS }
+data class UndoablePendingAction(val transactionId: Long, val action: PendingAction, val description: String)
 
 class SmsInboxViewModel(
     private val repository: FinanceRepository,
     private val database: AppDatabase
 ) : ViewModel() {
 
-    val pendingTransactions: StateFlow<List<TransactionWithDetails>> = repository.getPendingTransactions()
+    private val _uiState = MutableStateFlow(SmsInboxUiState())
+    val uiState: StateFlow<SmsInboxUiState> = _uiState.asStateFlow()
+    private val pendingRepositoryFlow = repository.getPendingTransactions()
+    private val actionCoordinator = PendingActionCoordinator(
+        scope = viewModelScope,
+        commit = { id, action -> commitStagedAction(id, action) },
+        onError = { error -> _uiState.value = _uiState.value.copy(actionError = error.message ?: "Could not save this review action.") }
+    )
+    private val bulkInFlightIds = mutableSetOf<Long>()
+    private val rawPendingTransactions = pendingRepositoryFlow
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5000),
             initialValue = emptyList()
         )
+    val pendingSourceTransactions: StateFlow<List<TransactionWithDetails>> = rawPendingTransactions
+
+    val pendingTransactions: StateFlow<List<TransactionWithDetails>> = combine(rawPendingTransactions, actionCoordinator.actions) { rows, actions ->
+        val staged = actions.keys
+        rows.filterNot { it.transaction.id in staged }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val undoableActions: StateFlow<List<UndoablePendingAction>> = combine(rawPendingTransactions, actionCoordinator.actions) { rows, actions ->
+        actions.filterValues { it.phase == PendingActionPhase.UNDOABLE }.mapNotNull { (id, record) ->
+            rows.firstOrNull { it.transaction.id == id }?.let { UndoablePendingAction(id, record.action, it.transaction.description) }
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val dismissedTransactions: StateFlow<List<TransactionWithDetails>> = repository.getDismissedTransactions()
         .stateIn(
@@ -68,10 +97,10 @@ class SmsInboxViewModel(
             initialValue = emptyList()
         )
 
-    private val _uiState = MutableStateFlow(SmsInboxUiState())
-    val uiState: StateFlow<SmsInboxUiState> = _uiState.asStateFlow()
-
     init {
+        viewModelScope.launch {
+            pendingRepositoryFlow.collect { _uiState.value = _uiState.value.copy(pendingLoaded = true) }
+        }
         viewModelScope.launch {
             pendingTransactions.collect { list ->
                 list.forEach { item ->
@@ -102,15 +131,27 @@ class SmsInboxViewModel(
     }
 
     fun onConfirmTransaction(item: TransactionWithDetails) {
-        viewModelScope.launch {
-            repository.confirmPendingTransaction(resolvedForConfirm(item), item.splits)
-        }
+        stagePendingAction(item, PendingAction.CONFIRM)
     }
 
-    fun onConfirmAllPending() {
+    fun onConfirmAllPending(snapshotIds: Set<Long>? = null) {
         viewModelScope.launch {
-            pendingTransactions.value.forEach { item ->
-                repository.confirmPendingTransaction(resolvedForConfirm(item), item.splits)
+            val candidates = rawPendingTransactions.value.filter { snapshotIds == null || it.transaction.id in snapshotIds }
+                .filterNot { it.transaction.id in actionCoordinator.activeIds() || it.transaction.id in bulkInFlightIds }
+            val reserved = candidates.filter { bulkInFlightIds.add(it.transaction.id) }
+            reserved.forEach { item ->
+                val id = item.transaction.id
+                try {
+                    val latest = repository.getTransactionById(id) ?: return@forEach
+                    if (isPendingForDeferredCommit(latest.transaction.status)) {
+                        repository.confirmPendingTransaction(resolvedForConfirm(latest), latest.splits)
+                    }
+                } catch (error: Exception) {
+                    if (error is CancellationException) throw error
+                    _uiState.value = _uiState.value.copy(actionError = error.message ?: "Could not confirm all pending transactions.")
+                } finally {
+                    bulkInFlightIds.remove(id)
+                }
             }
         }
     }
@@ -183,10 +224,30 @@ class SmsInboxViewModel(
     }
 
     fun onDismissTransaction(item: TransactionWithDetails) {
-        viewModelScope.launch {
-            repository.dismissPendingTransaction(item.transaction, item.splits)
+        stagePendingAction(item, PendingAction.DISMISS)
+    }
+
+    private fun stagePendingAction(item: TransactionWithDetails, action: PendingAction) {
+        val id = item.transaction.id
+        if (id in bulkInFlightIds) return
+        _uiState.value = _uiState.value.copy(actionError = null)
+        actionCoordinator.stage(id, action, item.transaction.description)
+    }
+
+    fun undoPendingAction(transactionId: Long) {
+        actionCoordinator.undo(transactionId)
+    }
+
+    private suspend fun commitStagedAction(id: Long, action: PendingAction) {
+        val latest = repository.getTransactionById(id) ?: return
+        if (!isPendingForDeferredCommit(latest.transaction.status)) return
+        when (action) {
+            PendingAction.CONFIRM -> repository.confirmPendingTransaction(resolvedForConfirm(latest), latest.splits)
+            PendingAction.DISMISS -> repository.dismissPendingTransaction(latest.transaction, latest.splits)
         }
     }
+
+    fun clearActionError() { _uiState.value = _uiState.value.copy(actionError = null) }
 
     fun onRestoreTransaction(item: TransactionWithDetails) {
         viewModelScope.launch {
@@ -196,6 +257,10 @@ class SmsInboxViewModel(
 
     fun onDismissedMessagesToggle() {
         _uiState.value = _uiState.value.copy(showingDismissed = !_uiState.value.showingDismissed)
+    }
+
+    fun showPendingTransactions() {
+        _uiState.value = _uiState.value.copy(showingDismissed = false)
     }
 
     fun onShowPermissionRationale() {

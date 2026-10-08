@@ -50,8 +50,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.fintrace.app.data.local.entity.CategoryEntity
 import com.fintrace.app.ui.components.CategoryIconBadge
-import com.fintrace.app.ui.theme.ExpenseRed
+import com.fintrace.app.ui.components.formatCurrency
 import com.fintrace.app.ui.theme.PrimaryEmerald
+import com.fintrace.app.ui.theme.ExpenseRed
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -140,13 +141,7 @@ fun CategoryListScreen(
                         CategoryListItem(
                             category = category,
                             onEdit = { viewModel.onEditCategoryClicked(category) },
-                            onDelete = {
-                                if (category.isDefault) {
-                                    viewModel.deleteCategory(category)
-                                } else {
-                                    categoryToDelete = category
-                                }
-                            }
+                            onDelete = { categoryToDelete = category }
                         )
                     }
                     item {
@@ -160,8 +155,8 @@ fun CategoryListScreen(
                 AddEditCategoryDialog(
                     category = uiState.editingCategory,
                     onDismiss = { viewModel.onDismissDialog() },
-                    onSave = { name, color, icon ->
-                        viewModel.saveCategory(name, color, icon)
+                    onSave = { name, color, icon, budget ->
+                        viewModel.saveCategory(name, color, icon, budget)
                     }
                 )
             }
@@ -171,7 +166,11 @@ fun CategoryListScreen(
                 AlertDialog(
                     onDismissRequest = { categoryToDelete = null },
                     title = { Text("Delete Category") },
-                    text = { Text("Are you sure you want to delete '${category.name}'? Existing transactions in this category will become uncategorized.") },
+                    text = {
+                        Text(
+                            "Delete '${category.name}'? Existing transactions will be reassigned to 'Others' when available, or the first remaining category by display order. This includes pending, dismissed, past, future, and recurring transactions. The category's budget will be removed and won't be transferred."
+                        )
+                    },
                     confirmButton = {
                         TextButton(
                             onClick = {
@@ -233,6 +232,13 @@ fun CategoryListItem(
                     Text(
                         text = "Default Category",
                         style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                category.budgetAmount?.takeIf { it > 0 }?.let { amt ->
+                    Text(
+                        text = "Budget: ${formatCurrency(amt)}",
+                        style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }

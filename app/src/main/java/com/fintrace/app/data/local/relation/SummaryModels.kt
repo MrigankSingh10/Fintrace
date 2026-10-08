@@ -8,7 +8,10 @@ data class CategorySpendSummary(
     val totalMyShareSpent: Double,
     val totalOriginalSpent: Double,
     val transactionCount: Int,
-    val percentageOfTotal: Double = 0.0
+    val percentageOfTotal: Double = 0.0,
+    val budgetAmount: Double? = null,
+    val budgetRemaining: Double? = null,
+    val budgetUtilization: Double? = null
 )
 
 data class MonthlyFinancialSummary(

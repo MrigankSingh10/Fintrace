@@ -32,7 +32,7 @@ import kotlinx.coroutines.launch
         MonthlyBudgetAdjustmentEntity::class,
         CardMappingEntity::class
     ],
-    version = 4,
+    version = 7,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -79,6 +79,31 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE categories ADD COLUMN budget_amount REAL DEFAULT NULL")
+            }
+        }
+
+        val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE transactions ADD COLUMN is_recurring INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE transactions ADD COLUMN recurring_series_id TEXT DEFAULT NULL")
+                db.execSQL("ALTER TABLE transactions ADD COLUMN recurring_month TEXT DEFAULT NULL")
+                db.execSQL("ALTER TABLE transactions ADD COLUMN recurring_day_of_month INTEGER DEFAULT NULL")
+                db.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS index_transactions_recurring_series_id_recurring_month " +
+                        "ON transactions(recurring_series_id, recurring_month)"
+                )
+            }
+        }
+
+        val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE transactions ADD COLUMN sms_source_timestamp INTEGER")
+            }
+        }
+
         @Volatile
         private var INSTANCE: AppDatabase? = null
 
@@ -89,8 +114,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     DATABASE_NAME
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
-                    .fallbackToDestructiveMigration()
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
                     .addCallback(object : Callback() {
                         override fun onCreate(db: SupportSQLiteDatabase) {
                             super.onCreate(db)

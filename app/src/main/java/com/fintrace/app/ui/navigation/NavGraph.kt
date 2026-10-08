@@ -1,12 +1,18 @@
 package com.fintrace.app.ui.navigation
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.SavedStateHandle
+import androidx.lifecycle.createSavedStateHandle
+import androidx.lifecycle.viewmodel.CreationExtras
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
+import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
@@ -26,6 +32,7 @@ import com.fintrace.app.ui.transactions.AddEditTransactionScreen
 import com.fintrace.app.ui.transactions.AddEditTransactionViewModel
 import com.fintrace.app.ui.transactions.TransactionListScreen
 import com.fintrace.app.ui.transactions.TransactionListViewModel
+import java.time.YearMonth
 
 /** Simple factory to create a ViewModel with a single [FinanceRepository] constructor arg. */
 @Suppress("UNCHECKED_CAST")
@@ -33,6 +40,17 @@ private inline fun <reified VM : ViewModel> repositoryFactory(
     repository: FinanceRepository
 ): ViewModelProvider.Factory = object : ViewModelProvider.Factory {
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
+        return createViewModel(modelClass, SavedStateHandle())
+    }
+
+    override fun <T : ViewModel> create(modelClass: Class<T>, extras: CreationExtras): T {
+        return createViewModel(modelClass, extras.createSavedStateHandle())
+    }
+
+    private fun <T : ViewModel> createViewModel(
+        modelClass: Class<T>,
+        savedStateHandle: SavedStateHandle
+    ): T {
         return when {
             modelClass.isAssignableFrom(AddEditTransactionViewModel::class.java) ->
                 AddEditTransactionViewModel(repository) as T
@@ -45,7 +63,7 @@ private inline fun <reified VM : ViewModel> repositoryFactory(
             modelClass.isAssignableFrom(DashboardViewModel::class.java) ->
                 DashboardViewModel(repository) as T
             modelClass.isAssignableFrom(AnalyticsViewModel::class.java) ->
-                AnalyticsViewModel(repository) as T
+                AnalyticsViewModel(repository, savedStateHandle) as T
             modelClass.isAssignableFrom(SmsInboxViewModel::class.java) ->
                 SmsInboxViewModel(repository, FinanceTrackerApp.instance.database) as T
             else -> throw IllegalArgumentException("Unknown ViewModel: ${modelClass.name}")
@@ -57,7 +75,14 @@ private inline fun <reified VM : ViewModel> repositoryFactory(
 fun AppNavGraph(
     navController: NavHostController,
     repository: FinanceRepository,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    sharedMonth: YearMonth? = null,
+    onSharedMonthSelected: (YearMonth) -> Unit = {},
+    isDarkTheme: Boolean = false,
+    onThemeToggle: () -> Unit = {},
+    exportRequest: Int = 0,
+    onRequestExport: () -> Unit = {},
+    onExportRequestConsumed: () -> Unit = {}
 ) {
     // Shared ViewModels — one instance per NavGraph lifetime (fine for screens that
     // don't mutate per-item state). AddEditTransactionViewModel is intentionally excluded.
@@ -68,6 +93,7 @@ fun AppNavGraph(
     val dashboardViewModel: DashboardViewModel = viewModel(factory = factory)
     val smsInboxViewModel: SmsInboxViewModel = viewModel(factory = factory)
     val analyticsViewModel: AnalyticsViewModel = viewModel(factory = factory)
+    val pendingSmsCount by repository.getPendingCount().collectAsState(initial = 0)
 
     NavHost(
         navController = navController,
@@ -91,7 +117,25 @@ fun AppNavGraph(
                 },
                 onNavigateToTransactionDetail = { transactionId ->
                     navController.navigate(Screen.AddTransaction.createRoute(transactionId))
-                }
+                },
+                pendingCount = pendingSmsCount,
+                onNavigateToSmsReview = {
+                    smsInboxViewModel.showPendingTransactions()
+                    navController.navigate(Screen.SmsInbox.route)
+                },
+                onScanSmsInbox = { context ->
+                    smsInboxViewModel.showPendingTransactions()
+                    smsInboxViewModel.scanInbox(context)
+                    navController.navigate(Screen.SmsInbox.route)
+                },
+                onEnableSmsImport = {
+                    smsInboxViewModel.showPendingTransactions()
+                    smsInboxViewModel.onShowPermissionRationale()
+                    navController.navigate(Screen.SmsInbox.route)
+                },
+                onNavigateToAnalytics = { navController.navigate(Screen.Analytics.route) },
+                sharedMonth = sharedMonth,
+                onSharedMonthSelected = onSharedMonthSelected
             )
         }
 
@@ -103,6 +147,14 @@ fun AppNavGraph(
                 },
                 onNavigateToEditTransaction = { transactionId ->
                     navController.navigate(Screen.AddTransaction.createRoute(transactionId))
+                },
+                sharedMonth = sharedMonth,
+                onSharedMonthSelected = onSharedMonthSelected,
+                showAddFab = false,
+                smsInboxViewModel = smsInboxViewModel,
+                onNavigateToSmsReview = {
+                    smsInboxViewModel.showPendingTransactions()
+                    navController.navigate(Screen.SmsInbox.route)
                 }
             )
         }
@@ -112,13 +164,37 @@ fun AppNavGraph(
                 viewModel = smsInboxViewModel,
                 onNavigateToEditTransaction = { transactionId ->
                     navController.navigate(Screen.AddTransaction.createRoute(transactionId))
-                }
+                },
+                onNavigateBack = { navController.popBackStack() }
             )
         }
 
         composable(Screen.Analytics.route) {
             AnalyticsScreen(
-                viewModel = analyticsViewModel
+                viewModel = analyticsViewModel,
+                sharedMonth = sharedMonth,
+                onSharedMonthSelected = onSharedMonthSelected,
+                exportRequest = exportRequest,
+                onExportRequestConsumed = onExportRequestConsumed
+            )
+        }
+
+        composable(Screen.Settings.route) {
+            SettingsScreen(
+                isDarkTheme = isDarkTheme,
+                onThemeToggle = onThemeToggle,
+                onNavigateBack = { navController.popBackStack() },
+                onCategories = { navController.navigate(Screen.Categories.route) },
+                onPaymentModes = { navController.navigate(Screen.PaymentModes.route) },
+                onExport = {
+                    onRequestExport()
+                    navController.navigate(Screen.Analytics.route) {
+                        popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                        launchSingleTop = true
+                        restoreState = true
+                    }
+                },
+                onSmsReview = { navController.navigate(Screen.SmsInbox.route) }
             )
         }
 

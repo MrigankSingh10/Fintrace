@@ -28,7 +28,8 @@ import com.fintrace.app.data.model.TransactionType
         Index(value = ["categoryId"]),
         Index(value = ["paymentModeId"]),
         Index(value = ["timestamp"]),
-        Index(value = ["status"])
+        Index(value = ["status"]),
+        Index(value = ["recurring_series_id", "recurring_month"], unique = true)
     ]
 )
 data class TransactionEntity(
@@ -47,6 +48,8 @@ data class TransactionEntity(
     val type: TransactionType = TransactionType.EXPENSE,
     val smsRawBody: String? = null,
     val smsSender: String? = null,
+    @ColumnInfo(name = "sms_source_timestamp")
+    val smsSourceTimestamp: Long? = null,
     val status: TransactionStatus = TransactionStatus.CONFIRMED,
     val notes: String? = null,
     @ColumnInfo(name = "parseConfidence")
@@ -54,5 +57,13 @@ data class TransactionEntity(
     @ColumnInfo(name = "cardLastFour")
     val cardLastFour: String? = null,
     @ColumnInfo(name = "currency", defaultValue = "INR")
-    val currency: String = "INR"
+    val currency: String = "INR",
+    @ColumnInfo(name = "is_recurring", defaultValue = "0")
+    val isRecurring: Boolean = false,
+    @ColumnInfo(name = "recurring_series_id")
+    val recurringSeriesId: String? = null,
+    @ColumnInfo(name = "recurring_month")
+    val recurringMonth: String? = null,
+    @ColumnInfo(name = "recurring_day_of_month")
+    val recurringDayOfMonth: Int? = null
 )

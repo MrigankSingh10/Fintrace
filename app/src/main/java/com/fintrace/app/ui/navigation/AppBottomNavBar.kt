@@ -1,7 +1,5 @@
 package com.fintrace.app.ui.navigation
 
-import androidx.compose.material3.Badge
-import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
@@ -14,13 +12,10 @@ import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.currentBackStackEntryAsState
-import com.fintrace.app.ui.theme.ExpenseRed
-import com.fintrace.app.ui.theme.PrimaryEmerald
 
 @Composable
 fun AppBottomNavBar(
     navController: NavController,
-    pendingSmsCount: Int = 0,
     modifier: Modifier = Modifier
 ) {
     val currentBackStack = navController.currentBackStackEntryAsState()
@@ -47,21 +42,7 @@ fun AppBottomNavBar(
                         }
                     }
                 },
-                icon = {
-                    if (screen == Screen.SmsInbox && pendingSmsCount > 0) {
-                        BadgedBox(
-                            badge = {
-                                Badge(containerColor = ExpenseRed) {
-                                    Text(text = "$pendingSmsCount")
-                                }
-                            }
-                        ) {
-                            screen.icon?.let { Icon(imageVector = it, contentDescription = screen.title) }
-                        }
-                    } else {
-                        screen.icon?.let { Icon(imageVector = it, contentDescription = screen.title) }
-                    }
-                },
+                icon = { screen.icon?.let { Icon(imageVector = it, contentDescription = screen.title) } },
                 label = {
                     Text(
                         text = screen.title,
@@ -69,9 +50,9 @@ fun AppBottomNavBar(
                     )
                 },
                 colors = NavigationBarItemDefaults.colors(
-                    selectedIconColor = PrimaryEmerald,
-                    selectedTextColor = PrimaryEmerald,
-                    indicatorColor = PrimaryEmerald.copy(alpha = 0.15f),
+                    selectedIconColor = MaterialTheme.colorScheme.primary,
+                    selectedTextColor = MaterialTheme.colorScheme.primary,
+                    indicatorColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
                     unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
                     unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant
                 )
