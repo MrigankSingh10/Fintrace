@@ -31,7 +31,8 @@ object SmsInboxScanner {
             Telephony.Sms._ID,
             Telephony.Sms.ADDRESS,
             Telephony.Sms.BODY,
-            Telephony.Sms.DATE
+            Telephony.Sms.DATE,
+            Telephony.Sms.DATE_SENT
         )
 
         val cutoffTimestamp = System.currentTimeMillis() - (lookbackDays * 24L * 60L * 60L * 1000L)
@@ -60,17 +61,19 @@ object SmsInboxScanner {
                 val bodyIdx = cursor.getColumnIndexOrThrow(Telephony.Sms.BODY)
                 val addressIdx = cursor.getColumnIndexOrThrow(Telephony.Sms.ADDRESS)
                 val dateIdx = cursor.getColumnIndexOrThrow(Telephony.Sms.DATE)
+                val dateSentIdx = cursor.getColumnIndex(Telephony.Sms.DATE_SENT)
 
                 do {
                     val body = cursor.getString(bodyIdx) ?: continue
                     val sender = cursor.getString(addressIdx)
-                    val date = cursor.getLong(dateIdx)
+                    val receivedDate = cursor.getLong(dateIdx)
+                    val sentDate = dateSentIdx.takeIf { it >= 0 }?.let { cursor.getLong(it) }
+                    val sourceTimestamp = sentDate?.takeIf { it > 0L } ?: receivedDate
 
                     processedCount++
 
-                    val parsed = SmsParser.parse(body, sender, date)
+                    val parsed = SmsParser.parse(body, sender, receivedDate)
                     if (parsed != null) {
-                        if (!repository.isSmsAlreadyProcessed(body)) {
                             val mappedPaymentModeId = parsed.cardLastFour?.let { lastFour ->
                                 cardMappingMap[lastFour]?.paymentModeId
                             }
@@ -103,6 +106,7 @@ object SmsInboxScanner {
                                 type = parsed.transactionType,
                                 smsRawBody = parsed.rawBody,
                                 smsSender = parsed.sender,
+                                smsSourceTimestamp = sourceTimestamp,
                                 status = TransactionStatus.PENDING,
                                 notes = "Imported from SMS inbox",
                                 parseConfidence = parsed.parseConfidence,
@@ -110,9 +114,7 @@ object SmsInboxScanner {
                                 currency = parsed.currencyCode
                             )
 
-                            database.transactionDao().insertTransaction(pending)
-                            importedCount++
-                        }
+                            if (repository.insertPendingSmsIfNew(pending, receivedDate)) importedCount++
                     }
                 } while (cursor.moveToNext())
             }

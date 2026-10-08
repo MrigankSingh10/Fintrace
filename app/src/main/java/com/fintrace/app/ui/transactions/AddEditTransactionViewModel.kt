@@ -2,6 +2,7 @@ package com.fintrace.app.ui.transactions
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.fintrace.app.data.local.fallbackCategoryId
 import com.fintrace.app.data.local.entity.CategoryEntity
 import com.fintrace.app.data.local.entity.PaymentModeEntity
 import com.fintrace.app.data.local.entity.TransactionEntity
@@ -9,19 +10,40 @@ import com.fintrace.app.data.local.entity.TransactionSplitEntity
 import com.fintrace.app.data.model.TransactionStatus
 import com.fintrace.app.data.model.TransactionType
 import com.fintrace.app.data.repository.FinanceRepository
+import com.fintrace.app.data.sms.SmsParser
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import java.math.BigDecimal
+import java.util.Calendar
+import java.util.UUID
+import kotlin.math.round
+
+private fun String.toFiniteDoubleOrNull(): Double? = toDoubleOrNull()?.takeIf(Double::isFinite)
 
 data class SplitParticipantItem(
     val id: Long = 0,
     val name: String,
     val shareAmount: String,
     val isUser: Boolean = false
+)
+
+/** All values which are editable in the transaction sheet. */
+data class TransactionDraft(
+    val description: String,
+    val originalAmount: String,
+    val myShareAmount: String,
+    val isSplit: Boolean,
+    val selectedCategoryId: Long,
+    val selectedPaymentModeId: Long,
+    val type: TransactionType,
+    val timestamp: Long,
+    val notes: String,
+    val splitParticipants: List<SplitParticipantItem>,
+    val isRecurring: Boolean
 )
 
 data class AddEditTransactionUiState(
@@ -35,326 +57,446 @@ data class AddEditTransactionUiState(
     val type: TransactionType = TransactionType.EXPENSE,
     val timestamp: Long = System.currentTimeMillis(),
     val notes: String = "",
-    val smsRawBody: String? = null,
-    val smsSender: String? = null,
     val splitParticipants: List<SplitParticipantItem> = emptyList(),
     val currency: String = "INR",
+    val isRecurring: Boolean = false,
+    val recurringSeriesId: String? = null,
+    val recurringDayOfMonth: Int? = null,
     val isLoading: Boolean = false,
+    val isSaving: Boolean = false,
+    val isDeleting: Boolean = false,
     val isSaved: Boolean = false,
-    val errorMessage: String? = null
-)
+    val isDirty: Boolean = false,
+    val isInitialized: Boolean = false,
+    val errorMessage: String? = null,
+    val amountError: String? = null,
+    val shareError: String? = null,
+    val participantErrors: Map<Int, String> = emptyMap(),
+    val participantTotalAmount: Double = 0.0,
+    val participantTotalIsFinite: Boolean = true,
+    val personalShareValue: Double = 0.0
+) {
+    val isBusy: Boolean get() = isLoading || isSaving || isDeleting
+    val canEdit: Boolean get() = isInitialized && !isBusy && !isSaved
+    val canSave: Boolean get() {
+        val bill = originalAmount.toFiniteDoubleOrNull() ?: return false
+        if (!isInitialized || isBusy || isSaved || description.isBlank() || selectedCategoryId <= 0L || selectedPaymentModeId <= 0L || bill <= 0.0) return false
+        if (!isSplit) return true
+        val own = myShareAmount.toFiniteDoubleOrNull() ?: return false
+        if (own < 0.0 || own > bill) return false
+        var others = 0.0
+        for (row in splitParticipants) {
+            val share = row.shareAmount.toFiniteDoubleOrNull() ?: return false
+            if (row.name.isBlank() || share <= 0.0 || share > bill) return false
+            others += share
+        }
+        return others.isFinite() && others <= bill
+    }
+}
 
 class AddEditTransactionViewModel(
     private val repository: FinanceRepository
 ) : ViewModel() {
 
     val categories: StateFlow<List<CategoryEntity>> = repository.getAllCategories()
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5000),
-            initialValue = emptyList()
-        )
-
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
     val paymentModes: StateFlow<List<PaymentModeEntity>> = repository.getAllPaymentModes()
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5000),
-            initialValue = emptyList()
-        )
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     private val _uiState = MutableStateFlow(AddEditTransactionUiState())
     val uiState: StateFlow<AddEditTransactionUiState> = _uiState.asStateFlow()
+    private var loadedTransactionId: Long? = null
+    private var originalEntity: TransactionEntity? = null
+    private var baseline: TransactionDraft? = null
+    private var categoryTouched = false
+    private var paymentModeTouched = false
+    private var personalShareExplicitlyEdited = false
 
-    fun loadTransaction(transactionId: Long) {
-        if (transactionId <= 0) {
-            // New transaction: wait for categories/modes to arrive from DB before setting defaults.
-            viewModelScope.launch {
-                // Reset to a blank state first so the screen shows cleanly while loading.
-                _uiState.value = AddEditTransactionUiState(
-                    transactionId = 0L,
-                    timestamp = System.currentTimeMillis(),
-                    isSaved = false,
-                    errorMessage = null
-                )
-                // Collect first non-empty lists (they come from Room Flow so may need a tick).
-                val cats = categories.first { it.isNotEmpty() }
-                val modes = paymentModes.first { it.isNotEmpty() }
-                _uiState.value = _uiState.value.copy(
-                    selectedCategoryId = cats.first().id,
-                    selectedPaymentModeId = modes.first().id
-                )
+    init {
+        viewModelScope.launch {
+            categories.collect { values ->
+                reconcileCategorySelection(values)
             }
+        }
+        viewModelScope.launch {
+            paymentModes.collect { values ->
+                if (values.isNotEmpty() && !paymentModeTouched && _uiState.value.selectedPaymentModeId == 0L) {
+                    update { state -> state.copy(selectedPaymentModeId = values.first().id).also {
+                        baseline = baseline?.copy(selectedPaymentModeId = values.first().id)
+                    } }
+                }
+            }
+        }
+    }
+
+    /** Safe to call from recomposition; a loaded or edited draft is never reinitialized. */
+    fun loadTransaction(transactionId: Long) {
+        if (loadedTransactionId == transactionId) return
+        loadedTransactionId = transactionId
+        categoryTouched = false
+        paymentModeTouched = false
+        personalShareExplicitlyEdited = false
+        baseline = null
+        originalEntity = null
+        if (transactionId <= 0L) {
+            val initialCategoryId = fallbackCategoryId(categories.value) ?: 0L
+            val initialPaymentModeId = paymentModes.value.firstOrNull()?.id ?: 0L
+            val state = AddEditTransactionUiState(
+                transactionId = 0L,
+                timestamp = System.currentTimeMillis(),
+                selectedCategoryId = initialCategoryId,
+                selectedPaymentModeId = initialPaymentModeId,
+                isInitialized = true
+            )
+            _uiState.value = state.withDerivedValues()
+            baseline = state.toDraft()
             return
         }
 
+        _uiState.value = AddEditTransactionUiState(
+            transactionId = transactionId,
+            isLoading = true
+        )
         viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(isLoading = true, isSaved = false, errorMessage = null)
-            val details = repository.getTransactionById(transactionId)
-            if (details != null) {
-                val t = details.transaction
-                val isSplit = details.isSplit
-                val participantItems = details.splits
-                    .filter { !it.isUser }
-                    .map { SplitParticipantItem(id = it.id, name = it.personName, shareAmount = if (it.shareAmount % 1.0 == 0.0) String.format("%.0f", it.shareAmount) else it.shareAmount.toString(), isUser = false) }
-
-                val origStr = if (t.originalAmount % 1.0 == 0.0) String.format("%.0f", t.originalAmount) else t.originalAmount.toString()
-                val myShareStr = if (t.myShareAmount % 1.0 == 0.0) String.format("%.0f", t.myShareAmount) else t.myShareAmount.toString()
-
-                var finalDescription = t.description.trim()
-                val isGenericOrNumeric = finalDescription.isBlank() ||
-                        finalDescription.matches(Regex("^(?:INR|RS\\.?|₹)?\\s*[0-9]+(?:,[0-9]+)*(?:\\.[0-9]+)?\\s*$", RegexOption.IGNORE_CASE)) ||
-                        finalDescription.matches(Regex("^[0-9\\.,\\s\\-_]+$")) ||
-                        finalDescription.equals("ICICI Bank Credit", ignoreCase = true) ||
-                        finalDescription.equals("HDFC Bank Credit", ignoreCase = true) ||
-                        finalDescription.equals("SBI Credit", ignoreCase = true) ||
-                        finalDescription.equals("Bank / Card Expense", ignoreCase = true) ||
-                        finalDescription.equals("Bank Credit / Dividend", ignoreCase = true)
-
-                if (isGenericOrNumeric && !t.smsRawBody.isNullOrBlank()) {
-                    val reParsed = com.fintrace.app.data.sms.SmsParser.parse(t.smsRawBody, t.smsSender, t.timestamp)
-                    if (reParsed != null && reParsed.merchant.isNotBlank() && !reParsed.merchant.matches(Regex("^(?:INR|RS\\.?|₹)?\\s*[0-9]+(?:,[0-9]+)*(?:\\.[0-9]+)?\\s*$", RegexOption.IGNORE_CASE))) {
-                        finalDescription = reParsed.merchant
+            runCatching { repository.getTransactionById(transactionId) }
+                .onSuccess { details ->
+                    if (loadedTransactionId != transactionId) return@onSuccess
+                    if (details == null) {
+                        loadedTransactionId = null
+                        update { it.copy(isLoading = false, errorMessage = "Transaction not found") }
+                    } else {
+                        val entity = details.transaction
+                        originalEntity = entity
+                        val rows = details.splits.filterNot { it.isUser }.map {
+                            SplitParticipantItem(
+                                id = it.id,
+                                name = it.personName,
+                                shareAmount = it.shareAmount.toEditorText()
+                            )
+                        }
+                        val loaded = AddEditTransactionUiState(
+                            transactionId = entity.id,
+                            description = descriptionForEditing(entity),
+                            originalAmount = entity.originalAmount.toEditorText(),
+                            myShareAmount = entity.myShareAmount.toEditorText(),
+                            isSplit = details.isSplit,
+                            selectedCategoryId = entity.categoryId,
+                            selectedPaymentModeId = entity.paymentModeId,
+                            type = entity.type,
+                            timestamp = entity.timestamp,
+                            notes = entity.notes.orEmpty(),
+                            splitParticipants = rows,
+                            currency = entity.currency,
+                            isRecurring = entity.isRecurring,
+                            recurringSeriesId = entity.recurringSeriesId,
+                            recurringDayOfMonth = entity.recurringDayOfMonth,
+                            isInitialized = true
+                        )
+                        _uiState.value = loaded.withDerivedValues()
+                        baseline = loaded.toDraft()
+                        categoryTouched = false
+                        paymentModeTouched = false
+                        reconcileCategorySelection(categories.value)
                     }
                 }
-
-                _uiState.value = AddEditTransactionUiState(
-                    transactionId = t.id,
-                    description = finalDescription,
-                    originalAmount = origStr,
-                    myShareAmount = myShareStr,
-                    isSplit = isSplit,
-                    selectedCategoryId = t.categoryId,
-                    selectedPaymentModeId = t.paymentModeId,
-                    type = t.type,
-                    timestamp = t.timestamp,
-                    notes = t.notes ?: "",
-                    smsRawBody = t.smsRawBody,
-                    smsSender = t.smsSender,
-                    splitParticipants = participantItems,
-                    currency = t.currency,
-                    isLoading = false,
-                    isSaved = false
-                )
-            } else {
-                _uiState.value = _uiState.value.copy(isLoading = false, errorMessage = "Transaction not found")
-            }
+                .onFailure {
+                    if (loadedTransactionId == transactionId) {
+                        loadedTransactionId = null
+                        update { it.copy(isLoading = false, errorMessage = "Could not load this transaction. Try again.") }
+                    }
+                }
         }
     }
 
-    fun resetSaved() {
-        _uiState.value = _uiState.value.copy(isSaved = false)
-    }
+    fun resetSaved() { update { it.copy(isSaved = false) } }
 
-    fun onDescriptionChange(value: String) {
-        _uiState.value = _uiState.value.copy(description = value, errorMessage = null)
-    }
-
-    fun onOriginalAmountChange(value: String) {
-        val filtered = value.filter { it.isDigit() || it == '.' }
-        val original = filtered.toDoubleOrNull() ?: 0.0
-        val participants = _uiState.value.splitParticipants
-
-        val newMyShare = if (!_uiState.value.isSplit || participants.isEmpty()) {
-            filtered
-        } else {
-            val otherSum = participants.sumOf { it.shareAmount.toDoubleOrNull() ?: 0.0 }
-            val remaining = (original - otherSum).coerceAtLeast(0.0)
-            if (remaining % 1.0 == 0.0) String.format("%.0f", remaining) else String.format("%.2f", remaining)
+    fun onDescriptionChange(value: String) = edit { it.copy(description = value) }
+    fun onOriginalAmountChange(value: String) = edit { state ->
+        val nextMyShare = when {
+            !state.isSplit -> value
+            personalShareExplicitlyEdited -> state.myShareAmount
+            else -> automaticRemainder(value, state.splitParticipants) ?: state.myShareAmount
         }
-
-        _uiState.value = _uiState.value.copy(
-            originalAmount = filtered,
-            myShareAmount = newMyShare,
-            errorMessage = null
-        )
+        state.copy(originalAmount = value, myShareAmount = nextMyShare)
     }
-
     fun onMyShareAmountChange(value: String) {
-        val filtered = value.filter { it.isDigit() || it == '.' }
-        _uiState.value = _uiState.value.copy(myShareAmount = filtered, errorMessage = null)
+        edit {
+            personalShareExplicitlyEdited = true
+            it.copy(myShareAmount = value)
+        }
     }
-
     fun onSplitToggle(isSplit: Boolean) {
-        val original = _uiState.value.originalAmount
-        _uiState.value = _uiState.value.copy(
-            isSplit = isSplit,
-            myShareAmount = if (!isSplit) original else _uiState.value.myShareAmount
-        )
+        edit {
+            if (!isSplit) personalShareExplicitlyEdited = false
+            it.copy(isSplit = isSplit, myShareAmount = if (!isSplit) it.originalAmount else it.myShareAmount)
+        }
     }
 
-    fun onQuickSplit(divisor: Int) {
-        val original = _uiState.value.originalAmount.toDoubleOrNull() ?: return
-        if (divisor <= 1) return
-
-        val myShare = original / divisor
-        val formattedMyShare = if (myShare % 1.0 == 0.0) String.format("%.0f", myShare) else String.format("%.2f", myShare)
-
-        val otherShare = (original - myShare) / (divisor - 1)
-        val formattedOtherShare = if (otherShare % 1.0 == 0.0) String.format("%.0f", otherShare) else String.format("%.2f", otherShare)
-
-        val newParticipants = (1 until divisor).map { index ->
-            SplitParticipantItem(
-                name = "Person $index",
-                shareAmount = formattedOtherShare,
-                isUser = false
-            )
+    fun onQuickSplit(divisor: Int) = edit { state ->
+        val bill = state.originalAmount.toFiniteDoubleOrNull() ?: return@edit state
+        if (bill <= 0.0 || divisor <= 1 || bill >= Long.MAX_VALUE / 100.0) return@edit state
+        val myShare = round((bill / divisor) * 100.0) / 100.0
+        var remainingCents = (round(bill * 100.0) - round(myShare * 100.0)).toLong()
+        val otherCount = divisor - 1
+        val rows = (1..otherCount).map { index ->
+            val cents = if (index == otherCount) remainingCents else (remainingCents / (otherCount - index + 1))
+            remainingCents -= cents
+            SplitParticipantItem(name = "Person $index", shareAmount = (cents / 100.0).toEditorText())
         }
+        personalShareExplicitlyEdited = false
+        state.copy(isSplit = true, myShareAmount = myShare.toEditorText(), splitParticipants = rows)
+    }
 
-        _uiState.value = _uiState.value.copy(
+    fun onAddParticipant() = edit { state ->
+        val rows = state.splitParticipants + SplitParticipantItem(name = "", shareAmount = "")
+        state.copy(
             isSplit = true,
-            myShareAmount = formattedMyShare,
-            splitParticipants = newParticipants
+            splitParticipants = rows,
+            myShareAmount = if (personalShareExplicitlyEdited) state.myShareAmount else automaticRemainder(state.originalAmount, rows) ?: state.myShareAmount
         )
     }
 
-    fun onAddParticipant() {
-        val current = _uiState.value.splitParticipants.toMutableList()
-        current.add(
-            SplitParticipantItem(
-                name = "Person ${current.size + 1}",
-                shareAmount = "",
-                isUser = false
-            )
-        )
-        _uiState.value = _uiState.value.copy(
-            isSplit = true,
-            splitParticipants = current
+    fun onUpdateParticipant(index: Int, name: String, share: String) = edit { state ->
+        if (index !in state.splitParticipants.indices) return@edit state
+        val rows = state.splitParticipants.toMutableList()
+        rows[index] = rows[index].copy(name = name, shareAmount = share)
+        state.copy(
+            splitParticipants = rows,
+            myShareAmount = if (personalShareExplicitlyEdited) state.myShareAmount else automaticRemainder(state.originalAmount, rows) ?: state.myShareAmount
         )
     }
 
-    fun onUpdateParticipant(index: Int, name: String, share: String) {
-        val current = _uiState.value.splitParticipants.toMutableList()
-        if (index in current.indices) {
-            val filtered = share.filter { it.isDigit() || it == '.' }
-            current[index] = current[index].copy(name = name, shareAmount = filtered)
-
-            // Auto-deduct user's own share: Total Original - Sum of other participants
-            val original = _uiState.value.originalAmount.toDoubleOrNull() ?: 0.0
-            val otherSum = current.sumOf { it.shareAmount.toDoubleOrNull() ?: 0.0 }
-            val remainingMyShare = (original - otherSum).coerceAtLeast(0.0)
-            val myShareStr = if (remainingMyShare % 1.0 == 0.0) String.format("%.0f", remainingMyShare) else String.format("%.2f", remainingMyShare)
-
-            _uiState.value = _uiState.value.copy(
-                splitParticipants = current,
-                myShareAmount = myShareStr
-            )
-        }
+    fun onRemoveParticipant(index: Int) = edit { state ->
+        if (index !in state.splitParticipants.indices) return@edit state
+        val rows = state.splitParticipants.toMutableList().also { it.removeAt(index) }
+        state.copy(
+            splitParticipants = rows,
+            myShareAmount = if (personalShareExplicitlyEdited) state.myShareAmount else automaticRemainder(state.originalAmount, rows) ?: state.myShareAmount
+        )
     }
 
-    fun onRemoveParticipant(index: Int) {
-        val current = _uiState.value.splitParticipants.toMutableList()
-        if (index in current.indices) {
-            current.removeAt(index)
-            val original = _uiState.value.originalAmount.toDoubleOrNull() ?: 0.0
-            val otherSum = current.sumOf { it.shareAmount.toDoubleOrNull() ?: 0.0 }
-            val remainingMyShare = (original - otherSum).coerceAtLeast(0.0)
-            val myShareStr = if (remainingMyShare % 1.0 == 0.0) String.format("%.0f", remainingMyShare) else String.format("%.2f", remainingMyShare)
-
-            _uiState.value = _uiState.value.copy(
-                splitParticipants = current,
-                myShareAmount = myShareStr
-            )
-        }
-    }
-
-    fun onCategorySelect(categoryId: Long) {
-        _uiState.value = _uiState.value.copy(selectedCategoryId = categoryId)
-    }
-
-    fun onPaymentModeSelect(paymentModeId: Long) {
-        _uiState.value = _uiState.value.copy(selectedPaymentModeId = paymentModeId)
-    }
-
-    fun onTypeSelect(type: TransactionType) {
-        _uiState.value = _uiState.value.copy(type = type)
-    }
-
-    fun onTimestampChange(timestamp: Long) {
-        _uiState.value = _uiState.value.copy(timestamp = timestamp)
-    }
-
-    fun onNotesChange(notes: String) {
-        _uiState.value = _uiState.value.copy(notes = notes)
-    }
+    fun onCategorySelect(id: Long) { categoryTouched = true; edit { it.copy(selectedCategoryId = id) } }
+    fun onPaymentModeSelect(id: Long) { paymentModeTouched = true; edit { it.copy(selectedPaymentModeId = id) } }
+    fun onTypeSelect(type: TransactionType) = edit { it.copy(type = type) }
+    fun onTimestampChange(timestamp: Long) = edit { it.copy(timestamp = timestamp) }
+    fun onNotesChange(value: String) = edit { it.copy(notes = value) }
+    fun onRecurringToggle(value: Boolean) = edit { it.copy(isRecurring = value) }
 
     fun saveTransaction() {
         val state = _uiState.value
-        val desc = state.description.trim()
-        val originalAmt = state.originalAmount.toDoubleOrNull()
-        val myShareAmt = if (state.isSplit) state.myShareAmount.toDoubleOrNull() else originalAmt
-
-        if (desc.isBlank()) {
-            _uiState.value = state.copy(errorMessage = "Please enter a description or merchant name")
-            return
-        }
-        if (originalAmt == null || originalAmt <= 0.0) {
-            _uiState.value = state.copy(errorMessage = "Please enter a valid amount")
-            return
-        }
-        if (myShareAmt == null || myShareAmt < 0.0) {
-            _uiState.value = state.copy(errorMessage = "Please enter a valid personal share amount")
-            return
-        }
-
-        viewModelScope.launch {
-            val transaction = TransactionEntity(
-                id = state.transactionId,
-                description = desc,
-                timestamp = state.timestamp,
-                originalAmount = originalAmt,
-                myShareAmount = myShareAmt,
-                categoryId = state.selectedCategoryId,
-                paymentModeId = state.selectedPaymentModeId,
-                type = state.type,
-                smsRawBody = state.smsRawBody,
-                smsSender = state.smsSender,
-                status = TransactionStatus.CONFIRMED,
-                notes = state.notes.ifBlank { null },
-                currency = state.currency
+        if (state.isBusy || state.isSaved || !state.isInitialized || state.errorMessage?.startsWith("Could not load") == true) return
+        val validation = validate(state)
+        if (validation != null) {
+            _uiState.value = state.copy(
+                amountError = validation.amountError,
+                shareError = validation.shareError,
+                participantErrors = validation.participantErrors,
+                errorMessage = validation.generalError
             )
-
-            val splits = mutableListOf<TransactionSplitEntity>()
-            if (state.isSplit) {
-                // Add User's share
-                splits.add(
-                    TransactionSplitEntity(
-                        transactionId = state.transactionId,
-                        personName = "Me",
-                        shareAmount = myShareAmt,
-                        isUser = true
-                    )
-                )
-                // Add other participants
-                state.splitParticipants.forEach { p ->
-                    val amt = p.shareAmount.toDoubleOrNull() ?: 0.0
-                    if (p.name.isNotBlank() && amt > 0.0) {
-                        splits.add(
-                            TransactionSplitEntity(
-                                transactionId = state.transactionId,
-                                personName = p.name.trim(),
-                                shareAmount = amt,
-                                isUser = false
-                            )
-                        )
-                    }
-                }
+            return
+        }
+        val bill = state.originalAmount.toFiniteDoubleOrNull()!!
+        val myShare = if (state.isSplit) state.myShareAmount.toFiniteDoubleOrNull()!! else bill
+        val loaded = originalEntity
+        val entity = (loaded ?: TransactionEntity(
+            description = "",
+            timestamp = state.timestamp,
+            originalAmount = bill,
+            myShareAmount = myShare,
+            categoryId = state.selectedCategoryId,
+            paymentModeId = state.selectedPaymentModeId
+        )).copy(
+            id = state.transactionId,
+            description = state.description.trim(),
+            timestamp = state.timestamp,
+            originalAmount = bill,
+            myShareAmount = myShare,
+            categoryId = state.selectedCategoryId,
+            paymentModeId = state.selectedPaymentModeId,
+            type = state.type,
+            status = TransactionStatus.CONFIRMED,
+            notes = state.notes.trim().ifBlank { null },
+            isRecurring = state.isRecurring,
+            recurringSeriesId = if (state.isRecurring) state.recurringSeriesId ?: UUID.randomUUID().toString() else null,
+            recurringDayOfMonth = if (state.isRecurring) state.recurringDayOfMonth ?: Calendar.getInstance().apply { timeInMillis = state.timestamp }.get(Calendar.DAY_OF_MONTH) else null
+        )
+        val splits = if (state.isSplit) buildList {
+            add(TransactionSplitEntity(transactionId = state.transactionId, personName = "Me", shareAmount = myShare, isUser = true))
+            state.splitParticipants.forEach { row ->
+                add(TransactionSplitEntity(
+                    transactionId = state.transactionId,
+                    personName = row.name.trim(),
+                    shareAmount = row.shareAmount.toFiniteDoubleOrNull()!!,
+                    isUser = false
+                ))
             }
+        } else emptyList()
 
-            repository.saveTransaction(transaction, splits)
-            _uiState.value = state.copy(isSaved = true)
+        update { it.copy(isSaving = true, amountError = null, shareError = null, participantErrors = emptyMap(), errorMessage = null) }
+        viewModelScope.launch {
+            runCatching { repository.saveTransaction(entity, splits) }
+                .onSuccess {
+                    baseline = _uiState.value.toDraft()
+                    originalEntity = entity
+                    update { it.copy(isSaving = false, isSaved = true, isDirty = false) }
+                }
+                .onFailure {
+                    update { it.copy(isSaving = false, errorMessage = "Could not save this transaction. Your changes are still here.") }
+                }
         }
     }
 
     fun deleteTransaction() {
         val state = _uiState.value
-        if (state.transactionId > 0) {
-            viewModelScope.launch {
-                val entity = repository.getTransactionById(state.transactionId)?.transaction
-                if (entity != null) {
-                    repository.deleteTransaction(entity)
+        val entity = originalEntity
+        if (state.isBusy || state.isSaved || state.transactionId <= 0L || entity == null) return
+        update { it.copy(isDeleting = true, errorMessage = null) }
+        viewModelScope.launch {
+            runCatching { repository.deleteTransaction(entity) }
+                .onSuccess {
+                    baseline = _uiState.value.toDraft()
+                    update { it.copy(isDeleting = false, isSaved = true, isDirty = false) }
                 }
-                _uiState.value = state.copy(isSaved = true)
+                .onFailure { update { it.copy(isDeleting = false, errorMessage = "Could not delete this transaction. Try again.") } }
+        }
+    }
+
+    private data class Validation(
+        val amountError: String? = null,
+        val shareError: String? = null,
+        val participantErrors: Map<Int, String> = emptyMap(),
+        val generalError: String? = null
+    )
+
+    private fun validate(state: AddEditTransactionUiState): Validation? {
+        if (state.description.isBlank()) return Validation(generalError = "Enter a merchant or description.")
+        val bill = state.originalAmount.toFiniteDoubleOrNull()
+            ?: return Validation(amountError = "Enter a valid amount.")
+        if (bill <= 0.0) return Validation(amountError = "Full bill must be greater than zero.")
+        if (!state.isSplit) return null
+        val own = state.myShareAmount.toFiniteDoubleOrNull()
+            ?: return Validation(shareError = "Enter a valid personal share.")
+        if (own < 0.0 || own > bill) return Validation(shareError = "Your share must be between zero and the full bill.")
+        var sum = 0.0
+        val errors = mutableMapOf<Int, String>()
+        state.splitParticipants.forEachIndexed { index, row ->
+            val amount = row.shareAmount.toFiniteDoubleOrNull()
+            when {
+                row.name.isBlank() -> errors[index] = "Enter a participant name."
+                amount == null || amount <= 0.0 -> errors[index] = "Enter a share greater than zero."
+                amount > bill -> errors[index] = "A share cannot exceed the full bill."
+                else -> sum += amount
             }
         }
+        if (sum > bill) return Validation(shareError = "Participant shares cannot exceed the full bill.", participantErrors = errors)
+        if (errors.isNotEmpty()) return Validation(participantErrors = errors)
+        return null
+    }
+
+    private fun edit(transform: (AddEditTransactionUiState) -> AddEditTransactionUiState) {
+        if (_uiState.value.isBusy || !_uiState.value.isInitialized) return
+        update { state -> transform(state).copy(errorMessage = null, amountError = null, shareError = null, participantErrors = emptyMap()) }
+    }
+
+    private fun update(transform: (AddEditTransactionUiState) -> AddEditTransactionUiState) {
+        _uiState.value = transform(_uiState.value).withDerivedValues().let { state ->
+            val savedBaseline = baseline
+            if (savedBaseline == null || !state.isInitialized) state else state.copy(isDirty = state.toDraft() != savedBaseline)
+        }
+    }
+
+    private fun reconcileCategorySelection(values: List<CategoryEntity>) {
+        val state = _uiState.value
+        if (!state.isInitialized || values.isEmpty() || values.any { it.id == state.selectedCategoryId }) return
+        val fallbackId = fallbackCategoryId(values) ?: return
+        _uiState.value = state.copy(selectedCategoryId = fallbackId).withDerivedValues().let { next ->
+            val savedBaseline = baseline
+            if (savedBaseline == null) next else next.copy(isDirty = next.toDraft() != savedBaseline.copy(selectedCategoryId = fallbackId))
+        }
+        baseline = baseline?.copy(selectedCategoryId = fallbackId)
+    }
+
+    private fun AddEditTransactionUiState.toDraft() = TransactionDraft(
+        description, originalAmount, myShareAmount, isSplit, selectedCategoryId,
+        selectedPaymentModeId, type, timestamp, notes, splitParticipants.toList(), isRecurring
+    )
+
+    private fun Double.toEditorText(): String =
+        if (isFinite()) BigDecimal.valueOf(this).stripTrailingZeros().toPlainString() else toString()
+
+    private fun automaticRemainder(
+        billText: String,
+        participants: List<SplitParticipantItem>
+    ): String? {
+        val bill = billText.toFiniteDoubleOrNull()?.takeIf { it > 0.0 } ?: return null
+        var others = 0.0
+        for (participant in participants) {
+            val share = if (participant.shareAmount.isBlank()) 0.0 else participant.shareAmount.toFiniteDoubleOrNull() ?: return null
+            others += share
+            if (!others.isFinite()) return null
+        }
+        val remainder = (bill - others).coerceAtLeast(0.0)
+        if (!remainder.isFinite()) return null
+        return remainder.toEditorText()
+    }
+
+    private fun descriptionForEditing(transaction: TransactionEntity): String {
+        var description = transaction.description.trim()
+        val isGenericOrNumeric = description.isBlank() ||
+            description.matches(Regex("^(?:INR|RS\\.?|₹)?\\s*[0-9]+(?:,[0-9]+)*(?:\\.[0-9]+)?\\s*$", RegexOption.IGNORE_CASE)) ||
+            description.matches(Regex("^[0-9\\.,\\s\\-_]+$")) ||
+            description.equals("ICICI Bank Credit", ignoreCase = true) ||
+            description.equals("HDFC Bank Credit", ignoreCase = true) ||
+            description.equals("SBI Credit", ignoreCase = true) ||
+            description.equals("Bank / Card Expense", ignoreCase = true) ||
+            description.equals("Bank Credit / Dividend", ignoreCase = true)
+        val rawBody = transaction.smsRawBody
+        if (isGenericOrNumeric && !rawBody.isNullOrBlank()) {
+            val parsed = SmsParser.parse(rawBody, transaction.smsSender, transaction.timestamp)
+            if (parsed != null && parsed.merchant.isNotBlank() &&
+                !parsed.merchant.matches(Regex("^(?:INR|RS\\.?|₹)?\\s*[0-9]+(?:,[0-9]+)*(?:\\.[0-9]+)?\\s*$", RegexOption.IGNORE_CASE))
+            ) {
+                description = parsed.merchant
+            }
+        }
+        return description
+    }
+
+    private fun AddEditTransactionUiState.withDerivedValues(): AddEditTransactionUiState {
+        val bill = originalAmount.toFiniteDoubleOrNull()
+        val own = myShareAmount.toFiniteDoubleOrNull()
+        val otherAmounts = splitParticipants.map { it.shareAmount.toFiniteDoubleOrNull() }
+        val totalOthers = otherAmounts.fold(0.0) { total, amount -> total + (amount ?: 0.0) }
+        val amountError = when {
+            originalAmount.isBlank() -> if (isInitialized) "Enter an amount greater than zero." else null
+            bill == null -> "Enter a valid amount."
+            bill <= 0.0 -> "Amount must be greater than zero."
+            else -> null
+        }
+        val liveShareError = if (!isSplit) null else when {
+            myShareAmount.isBlank() -> "Enter your share."
+            own == null || own < 0.0 -> "Enter a valid personal share."
+            bill != null && own > bill -> "Your share cannot exceed the full bill."
+            bill != null && totalOthers > bill -> "Participant shares cannot exceed the full bill."
+            else -> null
+        }
+        val liveParticipantErrors = splitParticipants.mapIndexedNotNull { index, row ->
+            val share = otherAmounts[index]
+            val message = when {
+                row.name.isBlank() && row.shareAmount.isNotBlank() -> "Enter a participant name."
+                row.name.isNotBlank() && (share == null || share <= 0.0) -> "Enter a share greater than zero."
+                bill != null && share != null && share > bill -> "A share cannot exceed the full bill."
+                else -> null
+            }
+            message?.let { index to it }
+        }.toMap()
+        return copy(
+            amountError = amountError,
+            shareError = liveShareError,
+            participantErrors = liveParticipantErrors,
+            participantTotalAmount = totalOthers.takeIf(Double::isFinite) ?: 0.0,
+            participantTotalIsFinite = totalOthers.isFinite(),
+            personalShareValue = own ?: 0.0
+        )
     }
 }

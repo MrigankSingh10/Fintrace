@@ -1,6 +1,7 @@
 package com.fintrace.app.data.repository
 
 import com.fintrace.app.data.local.entity.CategoryEntity
+import com.fintrace.app.data.local.dao.CategoryDeleteResult
 import com.fintrace.app.data.local.entity.MonthlyBudgetAdjustmentEntity
 import com.fintrace.app.data.local.entity.PaymentModeEntity
 import com.fintrace.app.data.local.entity.TransactionEntity
@@ -17,7 +18,7 @@ interface FinanceRepository {
     fun getAllCategories(): Flow<List<CategoryEntity>>
     suspend fun addCategory(category: CategoryEntity): Long
     suspend fun updateCategory(category: CategoryEntity)
-    suspend fun deleteCategory(category: CategoryEntity)
+    suspend fun deleteCategory(category: CategoryEntity): CategoryDeleteResult
     suspend fun getCategoryById(id: Long): CategoryEntity?
 
     // Payment Modes
@@ -41,6 +42,8 @@ interface FinanceRepository {
     suspend fun restoreDismissedTransaction(transaction: TransactionEntity, splits: List<TransactionSplitEntity> = emptyList()): Long
     suspend fun deleteTransaction(transaction: TransactionEntity)
     suspend fun isSmsAlreadyProcessed(smsBody: String): Boolean
+    suspend fun insertPendingSmsIfNew(transaction: TransactionEntity, receivedTimestamp: Long): Boolean
+    suspend fun materializeMonthlyRecurringTransactions()
 
     // Card Mappings
     fun getAllCardMappings(): Flow<List<com.fintrace.app.data.local.entity.CardMappingEntity>>
@@ -65,4 +68,8 @@ interface FinanceRepository {
 
     fun getMonthlyFinancialSummary(monthYear: String, startTimestamp: Long, endTimestamp: Long): Flow<MonthlyFinancialSummary>
     fun getCategoryBreakdown(startTimestamp: Long, endTimestamp: Long): Flow<List<CategorySpendSummary>>
+
+    // Category Budgets (global)
+    suspend fun updateCategoryBudget(categoryId: Long, budgetAmount: Double?)
+    suspend fun updateCategoryBudgets(budgets: List<Pair<Long, Double?>>)
 }

@@ -46,14 +46,14 @@ internal fun isIncomeDerived(
  * Adjustment that makes the current total exactly [targetIncome]. Future confirmed income keeps
  * accumulating on top of this adjustment, so an override is not a frozen total. May be negative.
  */
-internal fun overrideAdjustment(
+fun overrideAdjustment(
     targetIncome: Double,
     confirmedIncome: Double
 ): Double =
     targetIncome - confirmedIncome
 
 /** Adjustment for an additive change. Modifies the stored adjustment instead of a snapshot total. */
-internal fun additiveAdjustment(
+fun additiveAdjustment(
     existingAdjustment: Double,
     amountToAdd: Double
 ): Double =

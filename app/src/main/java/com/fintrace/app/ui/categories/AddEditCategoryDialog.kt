@@ -1,6 +1,6 @@
 package com.fintrace.app.ui.categories
 
-import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -26,6 +27,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import com.fintrace.app.data.local.entity.CategoryEntity
@@ -38,11 +41,12 @@ import com.fintrace.app.ui.theme.PrimaryEmerald
 fun AddEditCategoryDialog(
     category: CategoryEntity?,
     onDismiss: () -> Unit,
-    onSave: (name: String, colorHex: String, iconName: String) -> Unit
+    onSave: (name: String, colorHex: String, iconName: String, budgetAmount: Double?) -> Unit
 ) {
     var name by remember { mutableStateOf(category?.name ?: "") }
     var selectedColor by remember { mutableStateOf(category?.colorHex ?: "#3B82F6") }
     var selectedIcon by remember { mutableStateOf(category?.iconName ?: "ShoppingCart") }
+    var budgetText by remember { mutableStateOf(category?.budgetAmount?.takeIf { it > 0 }?.toString() ?: "") }
     var errorText by remember { mutableStateOf<String?>(null) }
 
     Dialog(onDismissRequest = onDismiss) {
@@ -108,7 +112,25 @@ fun AddEditCategoryDialog(
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                // Color Picker
+                // Budget Input
+                OutlinedTextField(
+                    value = budgetText,
+                    onValueChange = {
+                        budgetText = it.filter { ch -> ch.isDigit() || ch == '.' }
+                        if (errorText != null) errorText = null
+                    },
+                    label = { Text("Budget (global)") },
+                    placeholder = { Text("e.g. 1000") },
+                    supportingText = { Text("Applies every month. Leave blank or enter 0 to remove.") },
+                    prefix = { Text("₹ ") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp)
+                )
+
+                Spacer(modifier = Modifier.height(16.dp))
+
                 ColorPickerRow(
                     selectedColorHex = selectedColor,
                     onColorSelected = { selectedColor = it }
@@ -142,7 +164,15 @@ fun AddEditCategoryDialog(
                             if (name.trim().isBlank()) {
                                 errorText = "Please enter a name"
                             } else {
-                                onSave(name.trim(), selectedColor, selectedIcon)
+                                val budget = budgetText.trim()
+                                val budgetAmt: Double? = if (budget.isEmpty()) null else budget.toDoubleOrNull()
+                                if (budget.isNotEmpty() && budgetAmt == null) {
+                                    errorText = "Please enter a valid budget"
+                                } else if (budgetAmt != null && (!budgetAmt.isFinite() || budgetAmt < 0.0)) {
+                                    errorText = "Budget cannot be negative"
+                                } else {
+                                    onSave(name.trim(), selectedColor, selectedIcon, budgetAmt?.takeIf { it > 0.0 })
+                                }
                             }
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = PrimaryEmerald),

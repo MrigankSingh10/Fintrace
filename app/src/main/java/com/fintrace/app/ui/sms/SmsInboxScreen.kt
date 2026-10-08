@@ -28,6 +28,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CallSplit
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CreditCard
@@ -40,6 +41,7 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -73,13 +75,14 @@ import com.fintrace.app.data.local.relation.TransactionWithDetails
 import com.fintrace.app.data.model.TransactionType
 import com.fintrace.app.ui.components.CategoryIconBadge
 import com.fintrace.app.ui.components.PaymentModeBadge
+import com.fintrace.app.ui.components.RecurringBadge
+import com.fintrace.app.ui.components.SwipeableReviewCard
 import com.fintrace.app.ui.components.formatCurrency
 import com.fintrace.app.ui.components.parseColorHex
 import com.fintrace.app.ui.theme.AccentPurple
 import com.fintrace.app.ui.theme.ExpenseRed
 import com.fintrace.app.ui.theme.IncomeGreen
 import com.fintrace.app.ui.theme.PrimaryBlue
-import com.fintrace.app.ui.theme.PrimaryEmerald
 import com.fintrace.app.ui.theme.SplitBadgeBg
 import com.fintrace.app.ui.theme.SplitBadgeText
 import java.text.SimpleDateFormat
@@ -89,18 +92,22 @@ import java.util.Locale
 @Composable
 fun SmsInboxScreen(
     viewModel: SmsInboxViewModel,
-    onNavigateToEditTransaction: (Long) -> Unit
+    onNavigateToEditTransaction: (Long) -> Unit,
+    onNavigateBack: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val pendingTransactions by viewModel.pendingTransactions.collectAsState()
+    val pendingSourceTransactions by viewModel.pendingSourceTransactions.collectAsState()
     val dismissedTransactions by viewModel.dismissedTransactions.collectAsState()
     val categories by viewModel.categories.collectAsState()
     val paymentModes by viewModel.paymentModes.collectAsState()
     val cardMappings by viewModel.cardMappings.collectAsState()
     val uiState by viewModel.uiState.collectAsState()
-    val displayedTransactions = if (uiState.showingDismissed) dismissedTransactions else pendingTransactions
+    val displayedTransactions = if (uiState.showingDismissed) dismissedTransactions else if (uiState.pendingLoaded) pendingTransactions else emptyList()
 
     var cardToMap by remember { mutableStateOf<Pair<String, TransactionWithDetails>?>(null) }
+    var showConfirmAllDialog by remember { mutableStateOf(false) }
+    var confirmAllSnapshot by remember { mutableStateOf<List<TransactionWithDetails>>(emptyList()) }
 
     var hasSmsPermission by remember {
         mutableStateOf(
@@ -128,6 +135,16 @@ fun SmsInboxScreen(
                 .fillMaxSize()
                 .padding(paddingValues)
         ) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = onNavigateBack) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                }
+                Text("SMS Review", style = MaterialTheme.typography.titleLarge)
+            }
+
             // Permission Banner if missing
             if (!hasSmsPermission) {
                 Card(
@@ -174,10 +191,26 @@ fun SmsInboxScreen(
             }
 
             // Status message / Scan notification banner
+            viewModel.uiState.collectAsState().value.actionError?.let { error ->
+                Card(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)) {
+                    Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text(error, Modifier.weight(1f), color = MaterialTheme.colorScheme.onErrorContainer)
+                        TextButton(onClick = { viewModel.clearActionError() }) { Text("Dismiss") }
+                    }
+                }
+            }
+            viewModel.undoableActions.collectAsState().value.forEach { action ->
+                Card(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 3.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)) {
+                    Row(Modifier.padding(horizontal = 12.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text("${if (action.action == PendingAction.CONFIRM) "Confirmed" else "Dismissed"} ${action.description}", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+                        TextButton(onClick = { viewModel.undoPendingAction(action.transactionId) }) { Text("Undo") }
+                    }
+                }
+            }
             uiState.statusMessage?.let { msg ->
                 Card(
                     shape = RoundedCornerShape(10.dp),
-                    colors = CardDefaults.cardColors(containerColor = PrimaryEmerald.copy(alpha = 0.15f)),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(16.dp)
@@ -191,14 +224,14 @@ fun SmsInboxScreen(
                         Text(
                             text = msg,
                             style = MaterialTheme.typography.bodySmall,
-                            color = PrimaryEmerald,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
                             modifier = Modifier.weight(1f)
                         )
                         IconButton(
                             onClick = { viewModel.clearStatusMessage() },
                             modifier = Modifier.size(24.dp)
                         ) {
-                            Icon(imageVector = Icons.Default.Close, contentDescription = "Dismiss", tint = PrimaryEmerald, modifier = Modifier.size(16.dp))
+                            Icon(imageVector = Icons.Default.Close, contentDescription = "Dismiss", tint = MaterialTheme.colorScheme.onPrimaryContainer, modifier = Modifier.size(16.dp))
                         }
                     }
                 }
@@ -244,7 +277,7 @@ fun SmsInboxScreen(
                     .padding(horizontal = 16.dp, vertical = 2.dp)
             ) {
                 if (uiState.isScanning) {
-                    CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.5.dp, color = PrimaryEmerald)
+                    CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.5.dp, color = MaterialTheme.colorScheme.primary)
                 } else {
                     OutlinedButton(
                         onClick = {
@@ -276,8 +309,8 @@ fun SmsInboxScreen(
 
                 if (!uiState.showingDismissed && pendingTransactions.isNotEmpty()) {
                     Button(
-                        onClick = { viewModel.onConfirmAllPending() },
-                        colors = ButtonDefaults.buttonColors(containerColor = PrimaryEmerald),
+                        onClick = { confirmAllSnapshot = pendingTransactions.toList(); showConfirmAllDialog = true },
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary),
                         contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
                         shape = RoundedCornerShape(8.dp)
                     ) {
@@ -300,12 +333,17 @@ fun SmsInboxScreen(
                         Icon(
                             imageVector = Icons.Default.MarkEmailRead,
                             contentDescription = null,
-                            tint = PrimaryEmerald.copy(alpha = 0.6f),
+                            tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f),
                             modifier = Modifier.size(64.dp)
                         )
                         Spacer(modifier = Modifier.height(16.dp))
                         Text(
-                            text = if (uiState.showingDismissed) "No Dismissed Messages" else "All Caught Up!",
+                            text = when {
+                                uiState.showingDismissed -> "No Dismissed Messages"
+                                !uiState.pendingLoaded -> "Loading pending review…"
+                                pendingSourceTransactions.isNotEmpty() && pendingTransactions.isEmpty() -> "Saving review action…"
+                                else -> "All Caught Up!"
+                            },
                             style = MaterialTheme.typography.titleLarge,
                             color = MaterialTheme.colorScheme.onSurface
                         )
@@ -321,7 +359,7 @@ fun SmsInboxScreen(
                             textAlign = androidx.compose.ui.text.style.TextAlign.Center
                         )
                         Spacer(modifier = Modifier.height(20.dp))
-                        if (!uiState.showingDismissed) Button(
+                        if (!uiState.showingDismissed && uiState.pendingLoaded && pendingSourceTransactions.isEmpty()) Button(
                             onClick = {
                                 if (hasSmsPermission) {
                                     viewModel.scanInbox(context)
@@ -329,7 +367,7 @@ fun SmsInboxScreen(
                                     viewModel.onShowPermissionRationale()
                                 }
                             },
-                            colors = ButtonDefaults.buttonColors(containerColor = PrimaryEmerald),
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary),
                             shape = RoundedCornerShape(12.dp)
                         ) {
                             Icon(imageVector = Icons.Default.Refresh, contentDescription = null)
@@ -361,6 +399,7 @@ fun SmsInboxScreen(
                                 onSplitAndEdit = { onNavigateToEditTransaction(item.transaction.id) },
                                 onDismiss = { viewModel.onDismissTransaction(item) },
                                 onSelectCategory = { catId -> viewModel.onQuickCategoryChange(item, catId) },
+                                onSelectPaymentMode = { modeId -> viewModel.onQuickPaymentModeChange(item, modeId) },
                                 onMapCard = { lastFour -> cardToMap = lastFour to item }
                             )
                         }
@@ -395,6 +434,22 @@ fun SmsInboxScreen(
                     viewModel.onCreateCardMapping(lastFour, modeId, item)
                     cardToMap = null
                 }
+            )
+        }
+        if (showConfirmAllDialog) {
+            val totals = confirmAllSnapshot.groupBy { it.transaction.currency.uppercase() }.mapValues { (_, rows) -> rows.sumOf { it.transaction.myShareAmount } }
+            AlertDialog(
+                onDismissRequest = { showConfirmAllDialog = false },
+                title = { Text("Confirm all pending?") },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text("This confirms ${confirmAllSnapshot.size} transactions across all months. Filters do not limit this action.")
+                        totals.forEach { (currency, amount) -> Text("${formatCurrency(amount, currency)} personal share") }
+                        Text("This bulk action cannot be undone.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                },
+                confirmButton = { TextButton(onClick = { viewModel.onConfirmAllPending(confirmAllSnapshot.map { it.transaction.id }.toSet()); showConfirmAllDialog = false }) { Text("Confirm all") } },
+                dismissButton = { TextButton(onClick = { showConfirmAllDialog = false }) { Text("Cancel") } }
             )
         }
     }
@@ -452,7 +507,7 @@ private fun DismissedSmsCard(
             Spacer(modifier = Modifier.height(14.dp))
             Button(
                 onClick = onRestore,
-                colors = ButtonDefaults.buttonColors(containerColor = PrimaryEmerald),
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary),
                 shape = RoundedCornerShape(10.dp),
                 modifier = Modifier.fillMaxWidth()
             ) {
@@ -473,6 +528,8 @@ fun PendingSmsCard(
     onDismiss: () -> Unit,
     onSelectCategory: (Long) -> Unit,
     onMapCard: (String) -> Unit,
+    onSelectPaymentMode: (Long) -> Unit = {},
+    paymentModes: List<com.fintrace.app.data.local.entity.PaymentModeEntity> = emptyList(),
     modifier: Modifier = Modifier
 ) {
     val t = item.transaction
@@ -518,15 +575,22 @@ fun PendingSmsCard(
         }
     }
 
-    Card(
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-        modifier = modifier
-            .fillMaxWidth()
-            .clickable(enabled = !isIncome) { onSplitAndEdit() }
-    ) {
-        Column(modifier = Modifier.padding(16.dp)) {
+    SwipeableReviewCard(
+        title = merchantDisplay,
+        amount = t.myShareAmount,
+        smsBody = t.smsRawBody,
+        modifier = modifier,
+        sender = t.smsSender,
+        transactionType = t.type,
+        dateLabel = dateFormatter.format(Date(t.timestamp)),
+        categoryLabel = item.category?.name,
+        paymentLabel = item.paymentMode?.name,
+        onConfirm = onConfirm,
+        onDismiss = onDismiss,
+        onEdit = onSplitAndEdit,
+        currencyCode = t.currency,
+        customContent = {
+        Column(modifier = Modifier.fillMaxWidth().clickable(enabled = !isIncome) { onSplitAndEdit() }.padding(16.dp)) {
             // Header: Icon, Merchant, Amount, Dismiss
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -594,6 +658,11 @@ fun PendingSmsCard(
                 }
             }
 
+            if (t.isRecurring) {
+                Spacer(modifier = Modifier.height(8.dp))
+                RecurringBadge()
+            }
+
             if (!isIncome) {
                 Spacer(modifier = Modifier.height(10.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -603,6 +672,13 @@ fun PendingSmsCard(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     PaymentModeBadge(mode = item.paymentMode)
+                }
+                if (paymentModes.isNotEmpty()) {
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+                        items(paymentModes, key = { it.id }) { mode ->
+                            FilterChip(selected = t.paymentModeId == mode.id, onClick = { onSelectPaymentMode(mode.id) }, label = { Text(mode.name, style = MaterialTheme.typography.labelSmall) })
+                        }
+                    }
                 }
 
                 // Inline card mapping prompt (only for credit cards with unmapped card digits)
@@ -728,7 +804,7 @@ fun PendingSmsCard(
 
                 Button(
                     onClick = onConfirm,
-                    colors = ButtonDefaults.buttonColors(containerColor = PrimaryEmerald),
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary),
                     shape = RoundedCornerShape(10.dp),
                     modifier = Modifier.weight(1f)
                 ) {
@@ -738,5 +814,5 @@ fun PendingSmsCard(
                 }
             }
         }
-    }
+    })
 }

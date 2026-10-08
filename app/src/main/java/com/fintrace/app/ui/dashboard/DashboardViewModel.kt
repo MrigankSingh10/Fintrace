@@ -2,27 +2,32 @@ package com.fintrace.app.ui.dashboard
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.fintrace.app.data.local.entity.CategoryEntity
 import com.fintrace.app.data.local.entity.MonthlyBudgetAdjustmentEntity
 import com.fintrace.app.data.local.relation.CategorySpendSummary
-import com.fintrace.app.data.local.relation.MonthlyFinancialSummary
-import com.fintrace.app.data.local.relation.TransactionWithDetails
 import com.fintrace.app.data.model.SalaryMode
+import com.fintrace.app.data.model.TransactionStatus
 import com.fintrace.app.data.repository.FinanceRepository
-import com.fintrace.app.data.repository.additiveAdjustment
 import com.fintrace.app.data.repository.overrideAdjustment
+import com.fintrace.app.data.repository.additiveAdjustment
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import java.text.SimpleDateFormat
 import java.util.Calendar
-import java.util.Date
 import java.util.Locale
+import java.time.YearMonth
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 
 data class MonthPeriod(
     val monthYearKey: String,   // e.g. "2026-08"
@@ -35,9 +40,25 @@ data class MonthPeriod(
 
 data class DashboardPaceMetrics(
     val dailyAverageSpent: Double = 0.0,
-    val projectedMonthEndSpend: Double = 0.0,
-    val projectedSavings: Double = 0.0,
-    val burnRatePercentage: Double = 0.0
+    val projectedMonthEndSpent: Double = 0.0,
+    val projectedSavings: Double = 0.0
+)
+
+data class CategoryBudgetDialogState(
+    val categoryId: Long,
+    val categoryName: String,
+    val currentBudget: Double?
+)
+
+data class BulkBudgetEditState(
+    val categories: List<CategoryEntity>
+)
+
+data class DashboardIncomeDialogState(
+    val monthYearKey: String,
+    val displayName: String,
+    val currentIncome: Double,
+    val monthlyBudget: MonthlyBudgetAdjustmentEntity?
 )
 
 class DashboardViewModel(
@@ -53,78 +74,113 @@ class DashboardViewModel(
         initialValue = computeMonthPeriod(Calendar.getInstance())
     )
 
-    private val _isIncomeDialogOpen = MutableStateFlow(false)
-    val isIncomeDialogOpen: StateFlow<Boolean> = _isIncomeDialogOpen.asStateFlow()
+    private val _incomeDialogState = MutableStateFlow<DashboardIncomeDialogState?>(null)
+    val incomeDialogState: StateFlow<DashboardIncomeDialogState?> = _incomeDialogState.asStateFlow()
+
+    private val _categoryBudgetDialogState = MutableStateFlow<CategoryBudgetDialogState?>(null)
+    val categoryBudgetDialogState: StateFlow<CategoryBudgetDialogState?> = _categoryBudgetDialogState.asStateFlow()
+
+    private val _bulkBudgetState = MutableStateFlow<BulkBudgetEditState>(BulkBudgetEditState(emptyList()))
+    val bulkBudgetState: StateFlow<BulkBudgetEditState> = _bulkBudgetState.asStateFlow()
 
     @OptIn(ExperimentalCoroutinesApi::class)
-    val monthlyBudget: StateFlow<MonthlyBudgetAdjustmentEntity?> = selectedPeriod.flatMapLatest { period ->
-        repository.getBudgetForMonth(period.monthYearKey)
+    val monthUiState: StateFlow<DashboardMonthUiState> = selectedPeriod.flatMapLatest { period ->
+        flow {
+            emit(DashboardMonthUiState(monthYearKey = period.monthYearKey, isLoading = true))
+            combine(
+                repository.getMonthlyFinancialSummary(period.monthYearKey, period.startTimestamp, period.endTimestamp),
+                repository.getBudgetForMonth(period.monthYearKey),
+                repository.getCategoryBreakdown(period.startTimestamp, period.endTimestamp),
+                repository.getTransactionsForRange(period.startTimestamp, period.endTimestamp)
+            ) { summary, budget, categories, transactions ->
+                DashboardMonthUiState(
+                    monthYearKey = period.monthYearKey,
+                    isLoading = false,
+                    summary = summary,
+                    budget = budget,
+                    categories = categories,
+                    confirmedTransactions = transactions.filter { it.transaction.status == TransactionStatus.CONFIRMED }
+                )
+            }.collect { emit(it) }
+        }
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5000),
-        initialValue = null
-    )
-
-    @OptIn(ExperimentalCoroutinesApi::class)
-    val monthlySummary: StateFlow<MonthlyFinancialSummary> = selectedPeriod.flatMapLatest { period ->
-        repository.getMonthlyFinancialSummary(
-            monthYear = period.monthYearKey,
-            startTimestamp = period.startTimestamp,
-            endTimestamp = period.endTimestamp
+        initialValue = DashboardMonthUiState(
+            monthYearKey = computeMonthPeriod(Calendar.getInstance()).monthYearKey,
+            isLoading = true
         )
-    }.stateIn(
-        scope = viewModelScope,
-        started = SharingStarted.WhileSubscribed(5000),
-        initialValue = MonthlyFinancialSummary(
-            monthYear = "",
-            monthlyIncome = 0.0,
-            totalMyShareSpent = 0.0,
-            totalOriginalSpent = 0.0,
-            remainingBalance = 0.0
-        )
-    )
-
-    @OptIn(ExperimentalCoroutinesApi::class)
-    val categoryBreakdown: StateFlow<List<CategorySpendSummary>> = selectedPeriod.flatMapLatest { period ->
-        repository.getCategoryBreakdown(period.startTimestamp, period.endTimestamp)
-    }.stateIn(
-        scope = viewModelScope,
-        started = SharingStarted.WhileSubscribed(5000),
-        initialValue = emptyList()
-    )
-
-    @OptIn(ExperimentalCoroutinesApi::class)
-    val recentTransactions: StateFlow<List<TransactionWithDetails>> = selectedPeriod.flatMapLatest { period ->
-        repository.getTransactionsForRange(period.startTimestamp, period.endTimestamp)
-            .map { it.take(5) }
-    }.stateIn(
-        scope = viewModelScope,
-        started = SharingStarted.WhileSubscribed(5000),
-        initialValue = emptyList()
     )
 
     fun onPreviousMonth() {
-        val cal = _currentCalendar.value.clone() as Calendar
-        cal.add(Calendar.MONTH, -1)
-        _currentCalendar.value = cal
+        onMonthSelected(selectedPeriod.value.monthYearKey.toYearMonth().minusMonths(1))
     }
 
     fun onNextMonth() {
-        val cal = _currentCalendar.value.clone() as Calendar
-        cal.add(Calendar.MONTH, 1)
-        _currentCalendar.value = cal
+        onMonthSelected(selectedPeriod.value.monthYearKey.toYearMonth().plusMonths(1))
     }
 
     fun onResetToCurrentMonth() {
-        _currentCalendar.value = Calendar.getInstance()
+        onMonthSelected(YearMonth.now())
     }
 
-    fun onOpenIncomeDialog() {
-        _isIncomeDialogOpen.value = true
+    fun onMonthSelected(month: YearMonth) {
+        _currentCalendar.value = dashboardCalendarForMonth(month)
+    }
+
+    fun onOpenIncomeDialog(month: YearMonth) {
+        viewModelScope.launch {
+            val period = dashboardMonthPeriod(month)
+            val summaryFlow = repository.getMonthlyFinancialSummary(period.monthYearKey, period.startTimestamp, period.endTimestamp)
+            val budgetFlow = repository.getBudgetForMonth(period.monthYearKey)
+            val (summary, budget) = combine(summaryFlow, budgetFlow) { summary, budget -> summary to budget }.first()
+            _incomeDialogState.value = DashboardIncomeDialogState(
+                monthYearKey = period.monthYearKey,
+                displayName = period.displayName,
+                currentIncome = summary.monthlyIncome,
+                monthlyBudget = budget
+            )
+        }
     }
 
     fun onDismissIncomeDialog() {
-        _isIncomeDialogOpen.value = false
+        _incomeDialogState.value = null
+    }
+
+    fun onEditCategoryBudget(category: CategorySpendSummary) {
+        _categoryBudgetDialogState.value = CategoryBudgetDialogState(
+            categoryId = category.categoryId,
+            categoryName = category.categoryName,
+            currentBudget = category.budgetAmount
+        )
+    }
+
+    fun onDismissCategoryBudgetDialog() {
+        _categoryBudgetDialogState.value = null
+    }
+
+    fun onSaveCategoryBudget(categoryId: Long, budgetAmount: Double?) {
+        viewModelScope.launch {
+            repository.updateCategoryBudget(categoryId, budgetAmount)
+            onDismissCategoryBudgetDialog()
+        }
+    }
+
+    fun onOpenBulkBudgets() {
+        viewModelScope.launch {
+            _bulkBudgetState.value = BulkBudgetEditState(categories = repository.getAllCategories().first())
+        }
+    }
+
+    fun onDismissBulkBudgets() {
+        _bulkBudgetState.value = BulkBudgetEditState(emptyList())
+    }
+
+    fun onSaveBulkBudgets(budgets: Map<Long, Double?>) {
+        viewModelScope.launch {
+            repository.updateCategoryBudgets(budgets.toList())
+            onDismissBulkBudgets()
+        }
     }
 
     /**
@@ -137,8 +193,13 @@ class DashboardViewModel(
      */
     fun saveMonthlyIncomeAdjustment(amount: Double, mode: SalaryMode = SalaryMode.OVERRIDE) {
         viewModelScope.launch {
-            val period = selectedPeriod.value
-            val summary = monthlySummary.value
+            val dialog = _incomeDialogState.value ?: return@launch
+            val period = dashboardMonthPeriod(YearMonth.parse(dialog.monthYearKey))
+            val summary = repository.getMonthlyFinancialSummary(
+                monthYear = dialog.monthYearKey,
+                startTimestamp = period.startTimestamp,
+                endTimestamp = period.endTimestamp
+            ).first()
             val newAdjustment = when (mode) {
                 SalaryMode.OVERRIDE -> overrideAdjustment(
                     targetIncome = amount,
@@ -151,7 +212,7 @@ class DashboardViewModel(
                 )
             }
             repository.setMonthlyIncomeAdjustment(
-                monthYear = period.monthYearKey,
+                monthYear = dialog.monthYearKey,
                 manualAdjustment = newAdjustment,
                 notes = if (mode == SalaryMode.ADD_TO_SMS) {
                     "Added ${String.format("%.0f", amount)} to the income of ${period.displayName}"
@@ -165,39 +226,33 @@ class DashboardViewModel(
     }
 
     private fun computeMonthPeriod(cal: Calendar): MonthPeriod {
-        val startCal = (cal.clone() as Calendar).apply {
-            set(Calendar.DAY_OF_MONTH, 1)
-            set(Calendar.HOUR_OF_DAY, 0)
-            set(Calendar.MINUTE, 0)
-            set(Calendar.SECOND, 0)
-            set(Calendar.MILLISECOND, 0)
-        }
+        val month = YearMonth.of(cal.get(Calendar.YEAR), cal.get(Calendar.MONTH) + 1)
+        return dashboardMonthPeriod(month)
+    }
 
-        val endCal = (cal.clone() as Calendar).apply {
-            set(Calendar.DAY_OF_MONTH, cal.getActualMaximum(Calendar.DAY_OF_MONTH))
-            set(Calendar.HOUR_OF_DAY, 23)
-            set(Calendar.MINUTE, 59)
-            set(Calendar.SECOND, 59)
-            set(Calendar.MILLISECOND, 999)
-        }
-
-        val keyFormat = SimpleDateFormat("yyyy-MM", Locale.getDefault())
-        val displayFormat = SimpleDateFormat("MMMM yyyy", Locale.getDefault())
-
+    private fun dashboardMonthPeriod(month: YearMonth): MonthPeriod {
+        val zone = ZoneId.systemDefault()
+        val startMillis = month.atDay(1).atStartOfDay(zone).toInstant().toEpochMilli()
+        val endMillis = month.plusMonths(1).atDay(1).atStartOfDay(zone).toInstant().toEpochMilli() - 1
         val now = Calendar.getInstance()
-        val isCurrentMonth = (now.get(Calendar.YEAR) == cal.get(Calendar.YEAR) &&
-                now.get(Calendar.MONTH) == cal.get(Calendar.MONTH))
-
-        val daysInMonth = cal.getActualMaximum(Calendar.DAY_OF_MONTH)
+        val isCurrentMonth = YearMonth.of(now.get(Calendar.YEAR), now.get(Calendar.MONTH) + 1) == month
+        val daysInMonth = month.lengthOfMonth()
         val daysElapsed = if (isCurrentMonth) now.get(Calendar.DAY_OF_MONTH) else daysInMonth
 
         return MonthPeriod(
-            monthYearKey = keyFormat.format(startCal.time),
-            displayName = displayFormat.format(startCal.time),
-            startTimestamp = startCal.timeInMillis,
-            endTimestamp = endCal.timeInMillis,
+            monthYearKey = month.toString(),
+            displayName = month.format(DateTimeFormatter.ofPattern("MMMM yyyy", Locale.getDefault())),
+            startTimestamp = startMillis,
+            endTimestamp = endMillis,
             daysInMonth = daysInMonth,
             daysElapsed = daysElapsed.coerceAtLeast(1)
         )
     }
+
+    private fun String.toYearMonth(): YearMonth = YearMonth.parse(this)
+}
+
+internal fun dashboardCalendarForMonth(month: YearMonth): Calendar = Calendar.getInstance().apply {
+    clear()
+    set(month.year, month.monthValue - 1, 1, 0, 0, 0)
 }

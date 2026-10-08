@@ -39,37 +39,62 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import android.widget.Toast
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.fintrace.app.ui.components.formatCurrency
+import com.fintrace.app.ui.components.MonthSwitcher
 import com.fintrace.app.ui.theme.ExpenseRed
 import com.fintrace.app.ui.theme.PrimaryBlue
 import com.fintrace.app.ui.theme.PrimaryEmerald
 import com.fintrace.app.ui.theme.SplitBadgeBg
 import com.fintrace.app.ui.theme.SplitBadgeText
+import java.time.YearMonth
 
 @Composable
 fun AnalyticsScreen(
-    viewModel: AnalyticsViewModel
+    viewModel: AnalyticsViewModel,
+    sharedMonth: YearMonth? = null,
+    onSharedMonthSelected: ((YearMonth) -> Unit)? = null,
+    exportRequest: Int = 0,
+    onExportRequestConsumed: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val timeframe by viewModel.selectedTimeframe.collectAsState()
+    val selectedMonth by viewModel.selectedMonth.collectAsState()
+    val displayedPeriod by viewModel.displayedPeriod.collectAsState()
     val categoryBreakdown by viewModel.categoryBreakdown.collectAsState()
     val paymentModeBreakdown by viewModel.paymentModeBreakdown.collectAsState()
     val metrics by viewModel.metrics.collectAsState()
     val selectedCategory by viewModel.selectedCategory.collectAsState()
+
+    LaunchedEffect(sharedMonth) {
+        sharedMonth?.let(viewModel::onSharedMonthPresented)
+    }
 
     // SAF launcher: opens system file picker so user picks save location directly (no share sheet)
     val saveLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
     ) { uri ->
         if (uri != null) {
-            viewModel.exportToXlsx(context, uri)
+            if (!viewModel.exportToXlsx(context, uri)) {
+                Toast.makeText(context, "Export details were lost. Please start the export again.", Toast.LENGTH_LONG).show()
+            }
+        } else {
+            viewModel.cancelPendingExport()
+        }
+    }
+
+    LaunchedEffect(exportRequest) {
+        if (exportRequest > 0) {
+            saveLauncher.launch(viewModel.beginExport())
+            onExportRequestConsumed()
         }
     }
 
@@ -106,6 +131,17 @@ fun AnalyticsScreen(
                         )
                     )
                 }
+            }
+
+            if (timeframe == AnalyticsTimeframe.SPECIFIC_MONTH) {
+                Spacer(modifier = Modifier.height(8.dp))
+                MonthSwitcher(
+                    month = sharedMonth ?: selectedMonth,
+                    onMonthSelected = { month ->
+                        viewModel.onMonthSelected(month)
+                        onSharedMonthSelected?.invoke(month)
+                    }
+                )
             }
 
             Spacer(modifier = Modifier.height(14.dp))
@@ -196,7 +232,7 @@ fun AnalyticsScreen(
                             color = MaterialTheme.colorScheme.onSurface
                         )
                         Text(
-                            text = timeframe.label,
+                            text = displayedPeriod,
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -243,7 +279,7 @@ fun AnalyticsScreen(
 
             // Export to Excel (.xlsx) — saves directly to device storage via SAF
             Button(
-                onClick = { saveLauncher.launch(viewModel.defaultExportFilename()) },
+                onClick = { saveLauncher.launch(viewModel.beginExport()) },
                 colors = ButtonDefaults.buttonColors(containerColor = PrimaryEmerald),
                 shape = RoundedCornerShape(14.dp),
                 modifier = Modifier
@@ -258,7 +294,7 @@ fun AnalyticsScreen(
                 )
             }
 
-            Spacer(modifier = Modifier.height(36.dp))
+            Spacer(modifier = Modifier.height(96.dp))
         }
     }
 }

@@ -18,9 +18,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.tooling.preview.Preview
+import android.content.res.Configuration
 import com.fintrace.app.data.local.entity.CategoryEntity
 
 fun parseColorHex(hex: String?, fallback: Color = Color(0xFF3B82F6)): Color {
@@ -60,6 +63,41 @@ fun CategoryIconBadge(
 }
 
 @Composable
+fun CategoryIcon(
+    iconName: String?,
+    colorHex: String?,
+    modifier: Modifier = Modifier,
+    size: Dp = 40.dp,
+    iconSize: Dp = 20.dp
+) {
+    val color = parseColorHex(colorHex)
+    val luminance = color.luminance()
+    val blackContrast = (luminance + 0.05f) / 0.05f
+    val whiteContrast = 1.05f / (luminance + 0.05f)
+    val iconTint = if (blackContrast >= whiteContrast) Color.Black else Color.White
+    Box(
+        modifier = modifier
+            .size(size)
+            .clip(CircleShape)
+            .background(color),
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            imageVector = IconMapper.getIcon(iconName),
+            contentDescription = null,
+            tint = iconTint,
+            modifier = Modifier.size(iconSize)
+        )
+    }
+}
+
+@Preview(name = "Category icon · Light", showBackground = true)
+@Composable private fun CategoryIconLightPreview() { FintraceComponentPreview(false) { CategoryIcon("Fastfood", "#F97316") } }
+
+@Preview(name = "Category icon · Dark", uiMode = Configuration.UI_MODE_NIGHT_YES, showBackground = true)
+@Composable private fun CategoryIconDarkPreview() { FintraceComponentPreview(true) { CategoryIcon("ShoppingCart", "#22C55E") } }
+
+@Composable
 fun CategoryChip(
     category: CategoryEntity?,
     modifier: Modifier = Modifier,
@@ -67,8 +105,6 @@ fun CategoryChip(
 ) {
     val name = category?.name ?: "Uncategorized"
     val color = parseColorHex(category?.colorHex)
-    val icon = category?.iconName
-
     val bg = if (isSelected) color.copy(alpha = 0.25f) else MaterialTheme.colorScheme.surfaceVariant
     val border = if (isSelected) color else MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
 
