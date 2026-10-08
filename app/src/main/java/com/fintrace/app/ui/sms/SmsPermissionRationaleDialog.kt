@@ -2,21 +2,20 @@ package com.fintrace.app.ui.sms
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.MarkEmailUnread
-import androidx.compose.material.icons.filled.Security
-import androidx.compose.material.icons.filled.Sms
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -29,12 +28,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
-import com.fintrace.app.ui.theme.PrimaryBlue
 import com.fintrace.app.ui.theme.PrimaryEmerald
 
 @Composable
@@ -43,138 +39,97 @@ fun SmsPermissionRationaleDialog(
     onRequestPermission: () -> Unit
 ) {
     Dialog(onDismissRequest = onDismiss) {
-        Card(
-            shape = RoundedCornerShape(22.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-            elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 16.dp)
-        ) {
-            Column(
+        BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+            val dialogMaxHeight = (maxHeight * 0.92f).coerceAtLeast(200.dp)
+            Card(
+                shape = RoundedCornerShape(22.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(22.dp)
+                    .heightIn(max = dialogMaxHeight)
             ) {
-                // Header Icon
-                Box(
+                Column(
                     modifier = Modifier
-                        .size(54.dp)
-                        .clip(CircleShape)
-                        .background(PrimaryEmerald.copy(alpha = 0.15f)),
-                    contentAlignment = Alignment.Center
+                        .fillMaxWidth()
+                        .heightIn(max = dialogMaxHeight)
+                        .padding(20.dp)
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.MarkEmailUnread,
-                        contentDescription = null,
-                        tint = PrimaryEmerald,
-                        modifier = Modifier.size(28.dp)
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                Text(
-                    text = "Automated SMS Tracking",
-                    style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-
-                Spacer(modifier = Modifier.height(6.dp))
-
-                Text(
-                    text = "Finance Tracker can automatically detect bank and credit card spends from your incoming SMS so you don't have to enter them manually.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                // Privacy Guarantees
-                PrivacyPoint(
-                    icon = Icons.Default.Lock,
-                    title = "100% Offline & Private",
-                    subtitle = "All SMS parsing happens directly on your device. Zero data is ever uploaded to the cloud."
-                )
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                PrivacyPoint(
-                    icon = Icons.Default.Security,
-                    title = "Strictly Bank Alerts Only",
-                    subtitle = "Only transaction alerts with debit/credit amounts are processed. OTPs and personal chats are completely ignored."
-                )
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                PrivacyPoint(
-                    icon = Icons.Default.Sms,
-                    title = "You Stay in Control",
-                    subtitle = "Detected transactions go to a Pending Queue for you to categorize, split, or confirm."
-                )
-
-                Spacer(modifier = Modifier.height(22.dp))
-
-                // Buttons
-                Row(modifier = Modifier.fillMaxWidth()) {
-                    OutlinedButton(
-                        onClick = onDismiss,
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(12.dp)
+                    Column(
+                        modifier = Modifier
+                            .weight(1f, fill = false)
+                            .verticalScroll(rememberScrollState())
                     ) {
-                        Text("Not Now")
+                        Box(
+                            modifier = Modifier
+                                .size(48.dp)
+                                .clip(CircleShape)
+                                .background(PrimaryEmerald.copy(alpha = 0.15f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.MarkEmailUnread,
+                                contentDescription = null,
+                                tint = PrimaryEmerald,
+                                modifier = Modifier.size(25.dp)
+                            )
+                        }
+
+                        Spacer(Modifier.height(14.dp))
+                        Text(
+                            text = "How Fintrace uses SMS",
+                            style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Spacer(Modifier.height(10.dp))
+                        Text(
+                            text = "If you allow SMS access, Fintrace reads the sender, message body, and time from up to 30 days of existing SMS when you scan your inbox. Android can also deliver new incoming SMS to Fintrace for processing while the app is closed.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Spacer(Modifier.height(10.dp))
+                        Text(
+                            text = "Fintrace uses those details to look for possible financial transaction alerts and create records for your review. It does not process only bank messages; messages from other senders can also match.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Spacer(Modifier.height(10.dp))
+                        Text(
+                            text = "Matched SMS details and parsed financial records are stored locally on this device. Fintrace has no backend or Internet permission and does not send or share this information. Android backup or device transfer, and exports you choose to create, can move stored information elsewhere.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Spacer(Modifier.height(10.dp))
+                        Text(
+                            text = "SMS access is optional. If you choose Not now, you can still add transactions manually.",
+                            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Spacer(Modifier.height(8.dp))
                     }
 
-                    Spacer(modifier = Modifier.width(12.dp))
-
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedButton(
+                        onClick = onDismiss,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text("Not now")
+                    }
+                    Spacer(Modifier.height(8.dp))
                     Button(
                         onClick = {
                             onDismiss()
                             onRequestPermission()
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = PrimaryEmerald),
-                        modifier = Modifier.weight(1.3f),
+                        modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(12.dp)
                     ) {
                         Text("Allow SMS")
                     }
                 }
             }
-        }
-    }
-}
-
-@Composable
-fun PrivacyPoint(
-    icon: ImageVector,
-    title: String,
-    subtitle: String,
-    modifier: Modifier = Modifier
-) {
-    Row(
-        verticalAlignment = Alignment.Top,
-        modifier = modifier.fillMaxWidth()
-    ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = null,
-            tint = PrimaryBlue,
-            modifier = Modifier
-                .padding(top = 2.dp)
-                .size(18.dp)
-        )
-        Spacer(modifier = Modifier.width(10.dp))
-        Column {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold, fontSize = 13.sp),
-                color = MaterialTheme.colorScheme.onSurface
-            )
-            Text(
-                text = subtitle,
-                style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
         }
     }
 }
