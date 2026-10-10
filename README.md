@@ -71,7 +71,7 @@ adb -e emu sms send 5551234 "ICICI Bank Acct XX123 debited for Rs 250.00; Demo S
 
 Find it in Pending Review and confirm it to include it in spending. Use a different reference for each new example: identical SMS bodies are treated as duplicates.
 
-Use a dedicated emulator for development. Debug and release currently share `com.fintrace.app`; a debug install is not automatically isolated from a daily-use installation. See the [testing guide](TESTING_GUIDE.md) for setup and troubleshooting.
+Use a dedicated emulator for development. Debug and release currently share the `com.mrigank.fintrace` application ID; a debug install is not automatically isolated from a daily-use Play installation. The existing GitHub release uses `com.fintrace.app` and installs as a separate app, with separate local data. See the [testing guide](TESTING_GUIDE.md) for setup and troubleshooting.
 
 ## How totals work
 
