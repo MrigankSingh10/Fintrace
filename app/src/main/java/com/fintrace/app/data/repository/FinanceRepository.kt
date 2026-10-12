@@ -10,6 +10,7 @@ import com.fintrace.app.data.local.relation.CategorySpendSummary
 import com.fintrace.app.data.local.relation.MonthlyFinancialSummary
 import com.fintrace.app.data.local.relation.TransactionWithDetails
 import com.fintrace.app.data.model.SalaryMode
+import com.fintrace.app.data.model.CategoryBudgetConfiguration
 import kotlinx.coroutines.flow.Flow
 
 interface FinanceRepository {
@@ -70,6 +71,6 @@ interface FinanceRepository {
     fun getCategoryBreakdown(startTimestamp: Long, endTimestamp: Long): Flow<List<CategorySpendSummary>>
 
     // Category Budgets (global)
-    suspend fun updateCategoryBudget(categoryId: Long, budgetAmount: Double?)
-    suspend fun updateCategoryBudgets(budgets: List<Pair<Long, Double?>>)
+    suspend fun updateCategoryBudget(categoryId: Long, budget: CategoryBudgetConfiguration)
+    suspend fun updateCategoryBudgets(budgets: List<Pair<Long, CategoryBudgetConfiguration>>)
 }

@@ -154,6 +154,9 @@ fun CategoryListScreen(
             if (uiState.isEditing) {
                 AddEditCategoryDialog(
                     category = uiState.editingCategory,
+                    otherPercentageBudgets = categories
+                        .filter { it.id != uiState.editingCategory?.id }
+                        .sumOf { it.budgetPercentage ?: 0.0 },
                     onDismiss = { viewModel.onDismissDialog() },
                     onSave = { name, color, icon, budget ->
                         viewModel.saveCategory(name, color, icon, budget)
@@ -235,7 +238,10 @@ fun CategoryListItem(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-                category.budgetAmount?.takeIf { it > 0 }?.let { amt ->
+                category.budgetPercentage?.let { percentage ->
+                    Text("Budget: ${percentage}% of income", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                category.budgetAmount?.let { amt ->
                     Text(
                         text = "Budget: ${formatCurrency(amt)}",
                         style = MaterialTheme.typography.bodySmall,

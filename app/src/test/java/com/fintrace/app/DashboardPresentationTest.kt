@@ -1,6 +1,7 @@
 package com.fintrace.app
 
 import com.fintrace.app.data.local.entity.TransactionEntity
+import com.fintrace.app.data.local.relation.CategorySpendSummary
 import com.fintrace.app.data.local.relation.TransactionWithDetails
 import com.fintrace.app.data.model.TransactionStatus
 import com.fintrace.app.data.model.TransactionType
@@ -12,7 +13,9 @@ import com.fintrace.app.ui.dashboard.dashboardCategoryShare
 import com.fintrace.app.ui.dashboard.dashboardLeftThisMonth
 import com.fintrace.app.ui.dashboard.dashboardSpendProgress
 import com.fintrace.app.ui.dashboard.dashboardSpendPercent
+import com.fintrace.app.ui.dashboard.dashboardCategoryBudgetSubtitle
 import com.fintrace.app.ui.dashboard.latestDashboardTransactions
+import com.fintrace.app.ui.components.formatCurrency
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -27,6 +30,49 @@ import java.time.ZoneId
 
 class DashboardPresentationTest {
     private val zone = ZoneId.of("Asia/Kolkata")
+
+    @Test
+    fun homeBudgetSubtitleShowsEffectiveAmountAndUtilizationForBothModes() {
+        val percentageBudget = CategorySpendSummary(
+            categoryId = 1,
+            categoryName = "Dining",
+            colorHex = "#000000",
+            iconName = "Dining",
+            totalMyShareSpent = 8_000.0,
+            totalOriginalSpent = 8_000.0,
+            transactionCount = 1,
+            budgetAmount = 16_000.0,
+            budgetPercentage = 20.0
+        )
+        val fixedBudget = percentageBudget.copy(
+            configuredBudgetAmount = 16_000.0,
+            budgetPercentage = null
+        )
+
+        val percentageSubtitle = dashboardCategoryBudgetSubtitle(percentageBudget)
+        val fixedSubtitle = dashboardCategoryBudgetSubtitle(fixedBudget)
+
+        assertEquals("Budget ${formatCurrency(16_000.0)} · 50% used", percentageSubtitle)
+        assertEquals(fixedSubtitle, percentageSubtitle)
+        assertFalse(percentageSubtitle.orEmpty().contains("20%"))
+    }
+
+    @Test
+    fun homePercentageBudgetWithNoIncomeShowsZeroEffectiveAmount() {
+        val category = CategorySpendSummary(
+            categoryId = 1,
+            categoryName = "Dining",
+            colorHex = "#000000",
+            iconName = "Dining",
+            totalMyShareSpent = 0.0,
+            totalOriginalSpent = 0.0,
+            transactionCount = 0,
+            budgetAmount = 0.0,
+            budgetPercentage = 20.0
+        )
+
+        assertEquals("Budget ${formatCurrency(0.0)} · no income base", dashboardCategoryBudgetSubtitle(category))
+    }
 
     @Test
     fun leftBalanceAndProgressUseIncomeOnceAndClampDenominatorCases() {

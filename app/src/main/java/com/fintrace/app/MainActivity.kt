@@ -1,8 +1,15 @@
 package com.fintrace.app
 
+import android.Manifest
+import android.content.res.Configuration
+import android.content.pm.PackageManager
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.compose.setContent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.consumeWindowInsets
@@ -28,6 +35,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.FabPosition
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -35,14 +43,15 @@ import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.ui.Modifier
+import androidx.core.content.ContextCompat
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import com.fintrace.app.ui.navigation.AppBottomNavBar
 import com.fintrace.app.ui.navigation.AppNavGraph
 import com.fintrace.app.ui.navigation.Screen
+import com.fintrace.app.ui.sms.SmsPermissionRationaleDialog
 import com.fintrace.app.ui.theme.FinanceTrackerTheme
 import java.time.YearMonth
 
@@ -50,10 +59,18 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val app = application as FinanceTrackerApp
+        val systemDarkTheme =
+            (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
+                Configuration.UI_MODE_NIGHT_YES
+        val initialDarkTheme = app.isDarkTheme(systemDarkTheme)
+        applyEdgeToEdge(initialDarkTheme)
 
         setContent {
-            val systemDarkTheme = isSystemInDarkTheme()
-            var isDarkTheme by remember { mutableStateOf(app.isDarkTheme(systemDarkTheme)) }
+            var isDarkTheme by remember { mutableStateOf(initialDarkTheme) }
+
+            SideEffect {
+                applyEdgeToEdge(isDarkTheme)
+            }
 
             FinanceTrackerTheme(darkTheme = isDarkTheme) {
                 Surface(
@@ -74,6 +91,21 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+private fun ComponentActivity.applyEdgeToEdge(darkTheme: Boolean) {
+    enableEdgeToEdge(
+        statusBarStyle = SystemBarStyle.auto(
+            lightScrim = android.graphics.Color.TRANSPARENT,
+            darkScrim = android.graphics.Color.TRANSPARENT,
+            detectDarkMode = { darkTheme }
+        ),
+        navigationBarStyle = SystemBarStyle.auto(
+            lightScrim = 0xE6FFFFFF.toInt(),
+            darkScrim = 0x801B1B1B.toInt(),
+            detectDarkMode = { darkTheme }
+        )
+    )
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MainScreen(
@@ -81,6 +113,24 @@ fun MainScreen(
     isDarkTheme: Boolean,
     onThemeToggle: () -> Unit
 ) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val permissionPreferences = remember(context) {
+        context.getSharedPreferences("sms_permission_preferences", android.content.Context.MODE_PRIVATE)
+    }
+    fun hasSmsPermissions(): Boolean =
+        ContextCompat.checkSelfPermission(context, Manifest.permission.RECEIVE_SMS) == PackageManager.PERMISSION_GRANTED &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.READ_SMS) == PackageManager.PERMISSION_GRANTED
+
+    var showStartupSmsPermissionRationale by rememberSaveable {
+        mutableStateOf(
+            !hasSmsPermissions() &&
+                !permissionPreferences.getBoolean(STARTUP_SMS_PROMPT_HANDLED_KEY, false)
+        )
+    }
+    val smsPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions()
+    ) { /* Grant state is read from PackageManager where SMS review needs it. */ }
+
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
@@ -194,4 +244,20 @@ fun MainScreen(
             )
         }
     }
+
+    if (showStartupSmsPermissionRationale) {
+        SmsPermissionRationaleDialog(
+            onDismiss = {
+                permissionPreferences.edit().putBoolean(STARTUP_SMS_PROMPT_HANDLED_KEY, true).apply()
+                showStartupSmsPermissionRationale = false
+            },
+            onRequestPermission = {
+                smsPermissionLauncher.launch(
+                    arrayOf(Manifest.permission.RECEIVE_SMS, Manifest.permission.READ_SMS)
+                )
+            }
+        )
+    }
 }
+
+private const val STARTUP_SMS_PROMPT_HANDLED_KEY = "startup_prompt_handled"

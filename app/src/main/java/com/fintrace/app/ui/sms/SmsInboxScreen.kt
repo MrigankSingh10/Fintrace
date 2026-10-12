@@ -56,6 +56,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -66,10 +67,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import com.fintrace.app.data.local.entity.CategoryEntity
 import com.fintrace.app.data.local.relation.TransactionWithDetails
 import com.fintrace.app.data.model.TransactionType
@@ -96,6 +100,7 @@ fun SmsInboxScreen(
     onNavigateBack: () -> Unit = {}
 ) {
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     val pendingTransactions by viewModel.pendingTransactions.collectAsState()
     val pendingSourceTransactions by viewModel.pendingSourceTransactions.collectAsState()
     val dismissedTransactions by viewModel.dismissedTransactions.collectAsState()
@@ -109,19 +114,29 @@ fun SmsInboxScreen(
     var showConfirmAllDialog by remember { mutableStateOf(false) }
     var confirmAllSnapshot by remember { mutableStateOf<List<TransactionWithDetails>>(emptyList()) }
 
-    var hasSmsPermission by remember {
-        mutableStateOf(
-            ContextCompat.checkSelfPermission(context, Manifest.permission.RECEIVE_SMS) == PackageManager.PERMISSION_GRANTED &&
-                    ContextCompat.checkSelfPermission(context, Manifest.permission.READ_SMS) == PackageManager.PERMISSION_GRANTED
-        )
+    var hasSmsPermission by remember(context) { mutableStateOf(hasSmsImportPermissions(context)) }
+
+    DisposableEffect(lifecycleOwner, context) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                val wasGranted = hasSmsPermission
+                hasSmsPermission = hasSmsImportPermissions(context)
+                if (!wasGranted && hasSmsPermission) {
+                    viewModel.scanInbox(context.applicationContext)
+                }
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions()
     ) { results ->
-        hasSmsPermission = results.values.all { it }
+        // Permission results may omit keys; use the platform's actual current grant state.
+        hasSmsPermission = hasSmsImportPermissions(context)
         if (hasSmsPermission) {
-            viewModel.scanInbox(context)
+            viewModel.scanInbox(context.applicationContext)
         }
     }
 
@@ -454,6 +469,10 @@ fun SmsInboxScreen(
         }
     }
 }
+
+private fun hasSmsImportPermissions(context: android.content.Context): Boolean =
+    ContextCompat.checkSelfPermission(context, Manifest.permission.RECEIVE_SMS) == PackageManager.PERMISSION_GRANTED &&
+        ContextCompat.checkSelfPermission(context, Manifest.permission.READ_SMS) == PackageManager.PERMISSION_GRANTED
 
 @Composable
 private fun DismissedSmsCard(

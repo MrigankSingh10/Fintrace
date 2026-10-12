@@ -130,9 +130,19 @@ fun TransactionListScreen(
                 }
             } else when (segment) {
                 TransactionSegment.ALL -> {
-                    val groups = remember(displayRows) { groupTransactionsByLocalDay(displayRows) }
+                    val presentation = remember(displayRows) { buildTransactionListPresentation(displayRows) }
                     LazyColumn(contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        groups.forEach { group ->
+                        if (presentation.recurringTransactions.isNotEmpty()) {
+                            stickyHeader(key = "recurring-header") {
+                                Surface(color = MaterialTheme.colorScheme.background) {
+                                    Text("Recurring", modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), style = MaterialTheme.typography.titleSmall)
+                                }
+                            }
+                            items(presentation.recurringTransactions, key = { it.transaction.id }) { item ->
+                                TransactionRow(title = item.transaction.description, myShareAmount = item.transaction.myShareAmount, originalAmount = item.transaction.originalAmount, categoryName = item.category?.name, categoryIcon = item.category?.iconName, categoryColorHex = item.category?.colorHex, detail = item.paymentMode?.name.takeUnless { item.transaction.type == TransactionType.INCOME }, type = item.transaction.type, isRecurring = item.transaction.isRecurring, currencyCode = item.transaction.currency, onClick = { selectedDetailItem = item })
+                            }
+                        }
+                        presentation.dayGroups.forEach { group ->
                             stickyHeader(key = "day-${group.date}") {
                                 Surface(color = MaterialTheme.colorScheme.background) {
                                     Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -143,7 +153,7 @@ fun TransactionListScreen(
                                 }
                             }
                             items(group.transactions, key = { it.transaction.id }) { item ->
-                                TransactionRow(title = item.transaction.description, myShareAmount = item.transaction.myShareAmount, originalAmount = item.transaction.originalAmount, categoryName = item.category?.name, categoryIcon = item.category?.iconName, categoryColorHex = item.category?.colorHex, detail = item.paymentMode?.name, type = item.transaction.type, isRecurring = item.transaction.isRecurring, currencyCode = item.transaction.currency, onClick = { selectedDetailItem = item })
+                                TransactionRow(title = item.transaction.description, myShareAmount = item.transaction.myShareAmount, originalAmount = item.transaction.originalAmount, categoryName = item.category?.name, categoryIcon = item.category?.iconName, categoryColorHex = item.category?.colorHex, detail = item.paymentMode?.name.takeUnless { item.transaction.type == TransactionType.INCOME }, type = item.transaction.type, isRecurring = item.transaction.isRecurring, currencyCode = item.transaction.currency, onClick = { selectedDetailItem = item })
                             }
                         }
                     }

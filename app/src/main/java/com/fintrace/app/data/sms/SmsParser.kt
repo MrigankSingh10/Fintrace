@@ -94,6 +94,22 @@ object SmsParser {
         Pattern.CASE_INSENSITIVE
     )
 
+    // Standing-instruction notices describe a planned debit, not a posted expense.
+    // Keep this scoped to explicit future wording so completed SI debit confirmations
+    // that say only "debited" continue through normal debit classification.
+    private val FUTURE_DEBIT_REMINDER_PATTERNS = listOf(
+        Pattern.compile("\\b(?:to|will|shall)\\s+be\\s+debited\\b", Pattern.CASE_INSENSITIVE),
+        Pattern.compile("\\b(?:scheduled|due)\\s+to\\s+be\\s+debited\\b", Pattern.CASE_INSENSITIVE),
+        Pattern.compile(
+            "\\b(?:standing\\s+instruction|standing\\s+order|mandate)\\b[\\s\\S]{0,160}\\b(?:due\\s+(?:by|on)|scheduled\\s+(?:for|on|to)|upcoming)\\b",
+            Pattern.CASE_INSENSITIVE
+        ),
+        Pattern.compile(
+            "\\b(?:due\\s+(?:by|on)|scheduled\\s+(?:for|on|to)|upcoming)\\b[\\s\\S]{0,160}\\b(?:standing\\s+instruction|standing\\s+order|mandate)\\b",
+            Pattern.CASE_INSENSITIVE
+        )
+    )
+
     // Marketing content: sale events, promo codes, and percentage/amount-off offers
     // quote amounts like transactions but no money ever moves. Matched purely on
     // content so promotional SMS from any sender is rejected regardless of branding.
@@ -207,6 +223,13 @@ object SmsParser {
         // Failed, declined, cancelled, and reversed attempts did not produce a posted
         // transaction and must not enter Pending Review as spending.
         if (NON_POSTED_PATTERN.matcher(smsBody).find()) {
+            return null
+        }
+
+        // Future standing-instruction/reminder wording must be checked before the
+        // broad "debited" signal, which otherwise mistakes planned payments for
+        // completed transactions.
+        if (FUTURE_DEBIT_REMINDER_PATTERNS.any { it.matcher(smsBody).find() }) {
             return null
         }
 

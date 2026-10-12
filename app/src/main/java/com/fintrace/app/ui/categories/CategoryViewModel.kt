@@ -5,6 +5,9 @@ import androidx.lifecycle.viewModelScope
 import com.fintrace.app.data.local.entity.CategoryEntity
 import com.fintrace.app.data.local.dao.CategoryDeleteResult
 import com.fintrace.app.data.repository.FinanceRepository
+import com.fintrace.app.data.model.CategoryBudgetConfiguration
+import com.fintrace.app.data.model.CategoryBudgetMode
+import com.fintrace.app.data.model.CategoryBudgetRules
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -49,13 +52,19 @@ class CategoryViewModel(
         _uiState.value = _uiState.value.copy(errorMessage = null)
     }
 
-    fun saveCategory(name: String, colorHex: String, iconName: String, budgetAmount: Double?) {
+    fun saveCategory(name: String, colorHex: String, iconName: String, budget: CategoryBudgetConfiguration) {
         val trimmedName = name.trim()
         if (trimmedName.isBlank()) {
             _uiState.value = _uiState.value.copy(errorMessage = "Category name cannot be empty")
             return
         }
-        val normalizedBudget = budgetAmount?.takeIf { it > 0.0 }
+        val normalizedBudget = CategoryBudgetRules.normalize(budget)
+        if (normalizedBudget == null) {
+            _uiState.value = _uiState.value.copy(errorMessage = "Enter a valid amount or a percentage from 0 to 100")
+            return
+        }
+        val amount = normalizedBudget.value.takeIf { normalizedBudget.mode == CategoryBudgetMode.FIXED }
+        val percentage = normalizedBudget.value.takeIf { normalizedBudget.mode == CategoryBudgetMode.PERCENTAGE }
 
         viewModelScope.launch {
             val current = _uiState.value.editingCategory
@@ -67,7 +76,8 @@ class CategoryViewModel(
                     iconName = iconName,
                     isDefault = false,
                     displayOrder = (categories.value.maxOfOrNull { it.displayOrder } ?: 0) + 1,
-                    budgetAmount = normalizedBudget
+                    budgetAmount = amount,
+                    budgetPercentage = percentage
                 )
                 repository.addCategory(newCategory)
             } else {
@@ -76,7 +86,8 @@ class CategoryViewModel(
                     name = trimmedName,
                     colorHex = colorHex,
                     iconName = iconName,
-                    budgetAmount = normalizedBudget
+                    budgetAmount = amount,
+                    budgetPercentage = percentage
                 )
                 repository.updateCategory(updated)
             }

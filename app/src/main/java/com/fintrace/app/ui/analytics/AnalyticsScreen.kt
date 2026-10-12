@@ -280,7 +280,10 @@ fun AnalyticsScreen(
             // Export to Excel (.xlsx) — saves directly to device storage via SAF
             Button(
                 onClick = { saveLauncher.launch(viewModel.beginExport()) },
-                colors = ButtonDefaults.buttonColors(containerColor = PrimaryEmerald),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary
+                ),
                 shape = RoundedCornerShape(14.dp),
                 modifier = Modifier
                     .fillMaxWidth()

@@ -4,6 +4,7 @@ import android.app.DatePickerDialog
 import android.content.res.Configuration
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -12,12 +13,11 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -38,20 +38,18 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.SheetValue
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -62,6 +60,9 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalContext
@@ -93,7 +94,12 @@ import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 
-@OptIn(ExperimentalMaterial3Api::class)
+internal fun splitBillHeaderLabel(isExpanded: Boolean, hasSavedSplit: Boolean): String = when {
+    isExpanded -> "Split bill — tap to collapse"
+    hasSavedSplit -> "Split bill — tap to edit shares"
+    else -> "Split bill — tap to add people"
+}
+
 @Composable
 fun AddEditTransactionScreen(
     transactionId: Long,
@@ -137,94 +143,100 @@ fun AddEditTransactionScreen(
     }
 
     BackHandler(enabled = true) { requestDismiss() }
-    val sheetState = rememberModalBottomSheetState(
-        skipPartiallyExpanded = true,
-        confirmValueChange = { target ->
-            if (target == SheetValue.Hidden) {
-                if (state.isBusy) false
-                else if (state.isDirty) { discardDialog = true; false }
-                else true
-            } else true
-        }
-    )
-
-    ModalBottomSheet(
-        onDismissRequest = { requestDismiss() },
-        sheetState = sheetState,
-        windowInsets = WindowInsets(0),
-        containerColor = MaterialTheme.colorScheme.surface,
-        dragHandle = null,
-    ) {
-        Column(Modifier.fillMaxWidth().fillMaxHeight().imePadding()) {
-            Row(
-                Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(Modifier.weight(1f)) {
-                    Text(if (transactionId > 0) "Edit transaction" else "Add transaction", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
-                    Text(if (transactionId > 0) "Update the details below" else "Add a transaction to your records", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                if (transactionId > 0) {
-                    IconButton(onClick = { deleteDialog = true }, enabled = !state.isBusy) {
-                        Icon(Icons.Default.DeleteOutline, contentDescription = "Delete transaction", tint = ExpenseRed)
+    val editorContentAvailable = state.isInitialized &&
+        state.errorMessage != "Transaction not found" &&
+        state.errorMessage?.startsWith("Could not load") != true
+    Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
+        Scaffold(
+            modifier = Modifier.fillMaxSize().imePadding(),
+            contentWindowInsets = WindowInsets(0),
+                topBar = {
+                    Row(
+                        Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text(if (transactionId > 0) "Edit transaction" else "Add transaction", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+                            Text(if (transactionId > 0) "Update the details below" else "Add a transaction to your records", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        if (transactionId > 0) {
+                            IconButton(onClick = { deleteDialog = true }, enabled = !state.isBusy) {
+                                Icon(Icons.Default.DeleteOutline, contentDescription = "Delete transaction", tint = ExpenseRed)
+                            }
+                        }
+                        IconButton(onClick = requestDismiss, enabled = !state.isBusy) {
+                            Icon(Icons.Default.Close, contentDescription = "Close")
+                        }
+                    }
+                },
+                bottomBar = {
+                    if (editorContentAvailable) {
+                        Row(
+                            Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            if (state.isSaving || state.isDeleting) {
+                                Text(if (state.isDeleting) "Deleting…" else "Saving…", Modifier.weight(1f).padding(vertical = 14.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            } else {
+                                Button(
+                                    onClick = viewModel::saveTransaction,
+                                    enabled = state.canEdit && state.canSave,
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = MaterialTheme.colorScheme.primary,
+                                        contentColor = MaterialTheme.colorScheme.onPrimary
+                                    ),
+                                    shape = RoundedCornerShape(14.dp),
+                                    modifier = Modifier.fillMaxWidth().height(54.dp)
+                                ) { Text(if (transactionId > 0) "Save changes" else "Save transaction", fontWeight = FontWeight.Bold) }
+                            }
+                        }
                     }
                 }
-                IconButton(onClick = requestDismiss, enabled = !state.isBusy) {
-                    Icon(Icons.Default.Close, contentDescription = "Close")
-                }
-            }
-
-            if (state.isLoading) {
-                Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) { Text("Loading transaction…", color = MaterialTheme.colorScheme.onSurfaceVariant) }
-            } else if (!state.isInitialized || state.errorMessage == "Transaction not found" || state.errorMessage?.startsWith("Could not load") == true) {
-                Column(Modifier.weight(1f).fillMaxWidth().padding(24.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(state.errorMessage ?: "Preparing transaction…", color = MaterialTheme.colorScheme.error)
-                    if (state.errorMessage != null) TextButton(onClick = { viewModel.loadTransaction(transactionId) }) { Text("Try again") }
-                }
-            } else {
-                AddEditTransactionForm(
-                    state = state,
-                    categories = categories,
-                    paymentModes = paymentModes,
-                    modifier = Modifier.weight(1f),
-                    amountFocusRequester = focusRequester,
-                    enabled = state.canEdit,
-                    splitExpanded = splitExpanded,
-                    onSplitExpandedChange = {
-                        splitExpanded = it
-                        if (it && !state.isSplit) viewModel.onSplitToggle(true)
-                    },
-                    onTypeSelect = viewModel::onTypeSelect,
-                    onAmountChange = viewModel::onOriginalAmountChange,
-                    onCategorySelect = viewModel::onCategorySelect,
-                    onPaymentModeSelect = viewModel::onPaymentModeSelect,
-                    onTimestampChange = viewModel::onTimestampChange,
-                    onDescriptionChange = viewModel::onDescriptionChange,
-                    onNotesChange = viewModel::onNotesChange,
-                    onRecurringChange = viewModel::onRecurringToggle,
-                    onMyShareChange = viewModel::onMyShareAmountChange,
-                    onQuickSplit = viewModel::onQuickSplit,
-                    onAddParticipant = viewModel::onAddParticipant,
-                    onUpdateParticipant = viewModel::onUpdateParticipant,
-                    onRemoveParticipant = viewModel::onRemoveParticipant
-                )
-                Row(
-                    Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp).navigationBarsPadding(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    if (state.isSaving || state.isDeleting) {
-                        Text(if (state.isDeleting) "Deleting…" else "Saving…", Modifier.weight(1f).padding(vertical = 14.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    } else {
-                        Button(
-                            onClick = viewModel::saveTransaction,
-                            enabled = state.canEdit && state.canSave,
-                            colors = ButtonDefaults.buttonColors(containerColor = PrimaryEmerald),
-                            shape = RoundedCornerShape(14.dp),
-                            modifier = Modifier.fillMaxWidth().height(54.dp)
-                        ) { Text(if (transactionId > 0) "Save changes" else "Save transaction", fontWeight = FontWeight.Bold) }
+        ) { innerPadding ->
+                when {
+                    state.isLoading -> {
+                        Box(
+                            Modifier.fillMaxSize().padding(innerPadding),
+                            contentAlignment = Alignment.Center
+                        ) { Text("Loading transaction…", color = MaterialTheme.colorScheme.onSurfaceVariant) }
                     }
+                    !editorContentAvailable -> {
+                        Column(
+                            Modifier.fillMaxSize().padding(innerPadding).padding(24.dp),
+                            verticalArrangement = Arrangement.Center,
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text(state.errorMessage ?: "Preparing transaction…", color = MaterialTheme.colorScheme.error)
+                            if (state.errorMessage != null) TextButton(onClick = { viewModel.loadTransaction(transactionId) }) { Text("Try again") }
+                        }
+                    }
+                    else -> AddEditTransactionForm(
+                        state = state,
+                        categories = categories,
+                        paymentModes = paymentModes,
+                        modifier = Modifier.fillMaxSize().padding(innerPadding),
+                        amountFocusRequester = focusRequester,
+                        enabled = state.canEdit,
+                        splitExpanded = splitExpanded,
+                        onSplitExpandedChange = {
+                            splitExpanded = it
+                            if (it && !state.isSplit) viewModel.onSplitToggle(true)
+                        },
+                        onTypeSelect = viewModel::onTypeSelect,
+                        onAmountChange = viewModel::onOriginalAmountChange,
+                        onCategorySelect = viewModel::onCategorySelect,
+                        onPaymentModeSelect = viewModel::onPaymentModeSelect,
+                        onTimestampChange = viewModel::onTimestampChange,
+                        onDescriptionChange = viewModel::onDescriptionChange,
+                        onNotesChange = viewModel::onNotesChange,
+                        onRecurringChange = viewModel::onRecurringToggle,
+                        onMyShareChange = viewModel::onMyShareAmountChange,
+                        onQuickSplit = viewModel::onQuickSplit,
+                        onAddParticipant = viewModel::onAddParticipant,
+                        onUpdateParticipant = viewModel::onUpdateParticipant,
+                        onRemoveParticipant = viewModel::onRemoveParticipant
+                    )
                 }
-            }
         }
     }
 
@@ -400,63 +412,84 @@ private fun AddEditTransactionForm(
             )
         }
 
-        SectionCard(title = "Split bill", action = {
-            TextButton(onClick = { onSplitExpandedChange(!splitExpanded) }, enabled = enabled) { Text(if (splitExpanded) "Collapse" else "Expand") }
-        }) {
-            if (!splitExpanded) {
-                Text(if (state.isSplit) "Split details are saved. Expand to edit shares." else "Add other people’s shares to track your personal expense.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
-            } else {
-                Text("The amount above stays the full bill. Your share can be zero.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                OutlinedTextField(
-                    value = state.myShareAmount,
-                    onValueChange = onMyShareChange,
-                    enabled = enabled,
-                    label = { Text("Your share") },
-                    prefix = { Text("${currencySymbol(state.currency)} ") },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                    singleLine = true,
-                    isError = state.shareError != null,
-                    supportingText = state.shareError?.let { { Text(it) } },
-                    modifier = Modifier.fillMaxWidth()
-                )
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                    listOf(2 to "Half", 3 to "Thirds", 4 to "Quarters").forEach { (divisor, label) ->
-                        OutlinedButton(onClick = { onQuickSplit(divisor) }, enabled = enabled, modifier = Modifier.weight(1f)) { Text(label) }
-                    }
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(18.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            elevation = CardDefaults.cardElevation(0.dp)
+        ) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                val splitHeaderLabel = splitBillHeaderLabel(splitExpanded, state.isSplit)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 48.dp)
+                        .clickable(enabled = enabled, role = Role.Button) { onSplitExpandedChange(!splitExpanded) }
+                        .semantics { stateDescription = if (splitExpanded) "Expanded" else "Collapsed" },
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(splitHeaderLabel, modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                    Icon(
+                        imageVector = if (splitExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
-                state.splitParticipants.forEachIndexed { index, person ->
-                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                            OutlinedTextField(
-                                value = person.name,
-                                onValueChange = { onUpdateParticipant(index, it, person.shareAmount) },
-                                enabled = enabled,
-                                label = { Text("Participant (required)") },
-                                isError = state.participantErrors[index] != null && person.name.isBlank(),
-                                modifier = Modifier.weight(1f),
-                                singleLine = true
-                            )
-                            OutlinedTextField(
-                                value = person.shareAmount,
-                                onValueChange = { onUpdateParticipant(index, person.name, it) },
-                                enabled = enabled,
-                                label = { Text("Share (required)") },
-                                prefix = { Text("${currencySymbol(state.currency)} ") },
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                                isError = state.participantErrors[index] != null && person.shareAmount.isNotBlank(),
-                                modifier = Modifier.weight(1f),
-                                singleLine = true
-                            )
-                            IconButton(onClick = { onRemoveParticipant(index) }, enabled = enabled) { Icon(Icons.Default.Close, contentDescription = "Remove ${person.name.ifBlank { "participant" }}") }
+                if (!splitExpanded) {
+                    Text(if (state.isSplit) "Saved split details are hidden." else "Add other people’s shares to track your personal expense.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+                } else {
+                    Text("The amount above stays the full bill. Your share can be zero.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    OutlinedTextField(
+                        value = state.myShareAmount,
+                        onValueChange = onMyShareChange,
+                        enabled = enabled,
+                        label = { Text("Your share") },
+                        prefix = { Text("${currencySymbol(state.currency)} ") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                        singleLine = true,
+                        isError = state.shareError != null,
+                        supportingText = state.shareError?.let { { Text(it) } },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                        listOf(2 to "Half", 3 to "Thirds", 4 to "Quarters").forEach { (divisor, label) ->
+                            OutlinedButton(onClick = { onQuickSplit(divisor) }, enabled = enabled, modifier = Modifier.weight(1f)) { Text(label) }
                         }
-                        state.participantErrors[index]?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
                     }
+                    state.splitParticipants.forEachIndexed { index, person ->
+                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                OutlinedTextField(
+                                    value = person.name,
+                                    onValueChange = { onUpdateParticipant(index, it, person.shareAmount) },
+                                    enabled = enabled,
+                                    label = { Text("Participant (required)") },
+                                    isError = state.participantErrors[index] != null && person.name.isBlank(),
+                                    modifier = Modifier.weight(1f),
+                                    singleLine = true
+                                )
+                                OutlinedTextField(
+                                    value = person.shareAmount,
+                                    onValueChange = { onUpdateParticipant(index, person.name, it) },
+                                    enabled = enabled,
+                                    label = { Text("Share (required)") },
+                                    prefix = { Text("${currencySymbol(state.currency)} ") },
+                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                                    isError = state.participantErrors[index] != null && person.shareAmount.isNotBlank(),
+                                    modifier = Modifier.weight(1f),
+                                    singleLine = true
+                                )
+                                IconButton(onClick = { onRemoveParticipant(index) }, enabled = enabled) { Icon(Icons.Default.Close, contentDescription = "Remove ${person.name.ifBlank { "participant" }}") }
+                            }
+                            state.participantErrors[index]?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+                        }
+                    }
+                    TextButton(onClick = onAddParticipant, enabled = enabled) {
+                        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp)); Spacer(Modifier.width(4.dp)); Text("Add person")
+                    }
+                    val othersLabel = if (state.participantTotalIsFinite) formatCurrency(state.participantTotalAmount, state.currency) else "Too large"
+                    Text("Your share ${formatCurrency(state.personalShareValue, state.currency)} · Others $othersLabel", style = MaterialTheme.typography.labelMedium, color = SplitBadgeText)
                 }
-                TextButton(onClick = onAddParticipant, enabled = enabled) {
-                    Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp)); Spacer(Modifier.width(4.dp)); Text("Add person")
-                }
-                val othersLabel = if (state.participantTotalIsFinite) formatCurrency(state.participantTotalAmount, state.currency) else "Too large"
-                Text("Your share ${formatCurrency(state.personalShareValue, state.currency)} · Others $othersLabel", style = MaterialTheme.typography.labelMedium, color = SplitBadgeText)
             }
         }
 

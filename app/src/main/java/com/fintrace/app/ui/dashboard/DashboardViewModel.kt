@@ -6,6 +6,7 @@ import com.fintrace.app.data.local.entity.CategoryEntity
 import com.fintrace.app.data.local.entity.MonthlyBudgetAdjustmentEntity
 import com.fintrace.app.data.local.relation.CategorySpendSummary
 import com.fintrace.app.data.model.SalaryMode
+import com.fintrace.app.data.model.CategoryBudgetConfiguration
 import com.fintrace.app.data.model.TransactionStatus
 import com.fintrace.app.data.repository.FinanceRepository
 import com.fintrace.app.data.repository.overrideAdjustment
@@ -47,11 +48,14 @@ data class DashboardPaceMetrics(
 data class CategoryBudgetDialogState(
     val categoryId: Long,
     val categoryName: String,
-    val currentBudget: Double?
+    val currentBudget: CategoryBudgetConfiguration,
+    val monthlyIncome: Double,
+    val otherPercentageBudgets: Double
 )
 
 data class BulkBudgetEditState(
-    val categories: List<CategoryEntity>
+    val categories: List<CategoryEntity>,
+    val monthlyIncome: Double = 0.0
 )
 
 data class DashboardIncomeDialogState(
@@ -151,7 +155,14 @@ class DashboardViewModel(
         _categoryBudgetDialogState.value = CategoryBudgetDialogState(
             categoryId = category.categoryId,
             categoryName = category.categoryName,
-            currentBudget = category.budgetAmount
+            currentBudget = com.fintrace.app.data.model.CategoryBudgetRules.fromStored(
+                category.configuredBudgetAmount,
+                category.budgetPercentage
+            ),
+            monthlyIncome = monthUiState.value.summary?.monthlyIncome ?: 0.0,
+            otherPercentageBudgets = monthUiState.value.categories
+                .filter { it.categoryId != category.categoryId }
+                .sumOf { it.budgetPercentage ?: 0.0 }
         )
     }
 
@@ -159,16 +170,19 @@ class DashboardViewModel(
         _categoryBudgetDialogState.value = null
     }
 
-    fun onSaveCategoryBudget(categoryId: Long, budgetAmount: Double?) {
+    fun onSaveCategoryBudget(categoryId: Long, budget: CategoryBudgetConfiguration) {
         viewModelScope.launch {
-            repository.updateCategoryBudget(categoryId, budgetAmount)
+            repository.updateCategoryBudget(categoryId, budget)
             onDismissCategoryBudgetDialog()
         }
     }
 
     fun onOpenBulkBudgets() {
         viewModelScope.launch {
-            _bulkBudgetState.value = BulkBudgetEditState(categories = repository.getAllCategories().first())
+            _bulkBudgetState.value = BulkBudgetEditState(
+                categories = repository.getAllCategories().first(),
+                monthlyIncome = monthUiState.value.summary?.monthlyIncome ?: 0.0
+            )
         }
     }
 
@@ -176,7 +190,7 @@ class DashboardViewModel(
         _bulkBudgetState.value = BulkBudgetEditState(emptyList())
     }
 
-    fun onSaveBulkBudgets(budgets: Map<Long, Double?>) {
+    fun onSaveBulkBudgets(budgets: Map<Long, CategoryBudgetConfiguration>) {
         viewModelScope.launch {
             repository.updateCategoryBudgets(budgets.toList())
             onDismissBulkBudgets()

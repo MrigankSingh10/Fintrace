@@ -9,9 +9,14 @@ data class CategorySpendSummary(
     val totalOriginalSpent: Double,
     val transactionCount: Int,
     val percentageOfTotal: Double = 0.0,
+    /** Resolved currency value for the selected period; never persisted as configuration. */
     val budgetAmount: Double? = null,
     val budgetRemaining: Double? = null,
-    val budgetUtilization: Double? = null
+    val budgetUtilization: Double? = null,
+    /** Persisted fixed amount, if fixed mode is selected. */
+    val configuredBudgetAmount: Double? = null,
+    /** Persisted percentage, if percentage mode is selected. */
+    val budgetPercentage: Double? = null
 )
 
 data class MonthlyFinancialSummary(

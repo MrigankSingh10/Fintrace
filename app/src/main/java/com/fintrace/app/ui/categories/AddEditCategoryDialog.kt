@@ -16,6 +16,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -32,6 +33,8 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import com.fintrace.app.data.local.entity.CategoryEntity
+import com.fintrace.app.data.model.CategoryBudgetConfiguration
+import com.fintrace.app.data.model.CategoryBudgetMode
 import com.fintrace.app.ui.components.CategoryIconBadge
 import com.fintrace.app.ui.components.ColorPickerRow
 import com.fintrace.app.ui.components.IconPickerGrid
@@ -40,13 +43,19 @@ import com.fintrace.app.ui.theme.PrimaryEmerald
 @Composable
 fun AddEditCategoryDialog(
     category: CategoryEntity?,
+    otherPercentageBudgets: Double = 0.0,
     onDismiss: () -> Unit,
-    onSave: (name: String, colorHex: String, iconName: String, budgetAmount: Double?) -> Unit
+    onSave: (name: String, colorHex: String, iconName: String, budget: CategoryBudgetConfiguration) -> Unit
 ) {
     var name by remember { mutableStateOf(category?.name ?: "") }
     var selectedColor by remember { mutableStateOf(category?.colorHex ?: "#3B82F6") }
     var selectedIcon by remember { mutableStateOf(category?.iconName ?: "ShoppingCart") }
-    var budgetText by remember { mutableStateOf(category?.budgetAmount?.takeIf { it > 0 }?.toString() ?: "") }
+    var budgetMode by remember { mutableStateOf(when {
+        category?.budgetPercentage != null -> CategoryBudgetMode.PERCENTAGE
+        category?.budgetAmount != null -> CategoryBudgetMode.FIXED
+        else -> CategoryBudgetMode.NONE
+    }) }
+    var budgetText by remember { mutableStateOf((category?.budgetPercentage ?: category?.budgetAmount)?.toString() ?: "") }
     var errorText by remember { mutableStateOf<String?>(null) }
 
     Dialog(onDismissRequest = onDismiss) {
@@ -112,22 +121,42 @@ fun AddEditCategoryDialog(
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                // Budget Input
-                OutlinedTextField(
+                // Global category budget configuration.
+                Text("Budget (applies every month)", style = MaterialTheme.typography.titleSmall)
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    listOf(CategoryBudgetMode.NONE to "No budget", CategoryBudgetMode.FIXED to "Amount", CategoryBudgetMode.PERCENTAGE to "Percentage").forEach { (mode, label) ->
+                        FilterChip(selected = budgetMode == mode, onClick = {
+                            if (budgetMode != mode) {
+                                budgetMode = mode
+                                budgetText = ""
+                                errorText = null
+                            }
+                        }, label = { Text(label) })
+                    }
+                }
+                if (budgetMode != CategoryBudgetMode.NONE) OutlinedTextField(
                     value = budgetText,
                     onValueChange = {
                         budgetText = it.filter { ch -> ch.isDigit() || ch == '.' }
                         if (errorText != null) errorText = null
                     },
-                    label = { Text("Budget (global)") },
-                    placeholder = { Text("e.g. 1000") },
-                    supportingText = { Text("Applies every month. Leave blank or enter 0 to remove.") },
-                    prefix = { Text("₹ ") },
+                    label = { Text(if (budgetMode == CategoryBudgetMode.FIXED) "Monthly amount" else "Percent of monthly income") },
+                    placeholder = { Text(if (budgetMode == CategoryBudgetMode.FIXED) "e.g. 1000" else "e.g. 20") },
+                    supportingText = { Text(if (budgetMode == CategoryBudgetMode.FIXED) "Enter 0 for a zero amount budget." else "Enter a value from 0 to 100%.") },
+                    prefix = if (budgetMode == CategoryBudgetMode.FIXED) ({ Text("₹ ") }) else null,
+                    suffix = if (budgetMode == CategoryBudgetMode.PERCENTAGE) ({ Text("%") }) else null,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(12.dp)
                 )
+                if (budgetMode == CategoryBudgetMode.PERCENTAGE) {
+                    val percentage = budgetText.toDoubleOrNull()?.takeIf { it.isFinite() && it in 0.0..100.0 } ?: 0.0
+                    if (otherPercentageBudgets + percentage > 100.0) {
+                        Text("Combined category budgets exceed 100% of income.", color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodySmall)
+                    }
+                }
 
                 Spacer(modifier = Modifier.height(16.dp))
 
@@ -165,13 +194,12 @@ fun AddEditCategoryDialog(
                                 errorText = "Please enter a name"
                             } else {
                                 val budget = budgetText.trim()
-                                val budgetAmt: Double? = if (budget.isEmpty()) null else budget.toDoubleOrNull()
-                                if (budget.isNotEmpty() && budgetAmt == null) {
-                                    errorText = "Please enter a valid budget"
-                                } else if (budgetAmt != null && (!budgetAmt.isFinite() || budgetAmt < 0.0)) {
-                                    errorText = "Budget cannot be negative"
-                                } else {
-                                    onSave(name.trim(), selectedColor, selectedIcon, budgetAmt?.takeIf { it > 0.0 })
+                                if (budgetMode == CategoryBudgetMode.NONE) onSave(name.trim(), selectedColor, selectedIcon, CategoryBudgetConfiguration(CategoryBudgetMode.NONE))
+                                else {
+                                    val value = budget.toDoubleOrNull()
+                                    if (value == null || !value.isFinite() || value < 0.0 || (budgetMode == CategoryBudgetMode.PERCENTAGE && value > 100.0)) {
+                                        errorText = if (budgetMode == CategoryBudgetMode.PERCENTAGE) "Enter a percentage from 0 to 100" else "Budget must be finite and non-negative"
+                                    } else onSave(name.trim(), selectedColor, selectedIcon, CategoryBudgetConfiguration(budgetMode, value))
                                 }
                             }
                         },
