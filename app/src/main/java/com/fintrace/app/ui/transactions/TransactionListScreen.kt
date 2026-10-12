@@ -105,8 +105,16 @@ fun TransactionListScreen(
             if (segment == TransactionSegment.PENDING || segment == TransactionSegment.DISMISSED) {
                 smsState.actionError?.let { error -> Text(error, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(horizontal = 16.dp)) }
                 undoables.forEach { action ->
-                    Snackbar(Modifier.padding(horizontal = 16.dp, vertical = 2.dp), action = { TextButton(onClick = { smsInboxViewModel?.undoPendingAction(action.transactionId) }) { Text("Undo") } }) {
-                        Text("${if (action.action == PendingAction.CONFIRM) "Confirmed" else "Dismissed"} ${action.description}")
+                    Snackbar(
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
+                        containerColor = MaterialTheme.colorScheme.inverseSurface,
+                        contentColor = MaterialTheme.colorScheme.inverseOnSurface
+                    ) {
+                        PendingActionFeedbackContent(
+                            action = action,
+                            contentColor = MaterialTheme.colorScheme.inverseOnSurface,
+                            onUndo = { smsInboxViewModel?.undoPendingAction(action.transactionId) }
+                        )
                     }
                 }
                 if (!smsState.pendingLoaded && segment == TransactionSegment.PENDING) LinearProgressIndicator(Modifier.fillMaxWidth())
@@ -195,7 +203,16 @@ fun TransactionListScreen(
     }
     selectedDetailItem?.let { item -> TransactionDetailSheet(item, onDismiss = { selectedDetailItem = null }, onEdit = { val id = item.transaction.id; selectedDetailItem = null; onNavigateToEditTransaction(id) }, onDelete = { deleteTarget = item }) }
     deleteTarget?.let { item -> AlertDialog(onDismissRequest = { deleteTarget = null }, title = { Text("Delete transaction?") }, text = { Text("${item.transaction.description} will be permanently deleted, including its split details. This cannot be undone.") }, confirmButton = { TextButton(onClick = { viewModel.deleteTransaction(item); deleteTarget = null; selectedDetailItem = null }) { Text("Delete") } }, dismissButton = { TextButton(onClick = { deleteTarget = null }) { Text("Cancel") } }) }
-    pendingCardToMap?.let { (lastFour, item) -> CardMappingDialog(lastFour, paymentModes, item.transaction.paymentModeId, { pendingCardToMap = null }, { modeId -> smsInboxViewModel?.onCreateCardMapping(lastFour, modeId, item); pendingCardToMap = null }) }
+    pendingCardToMap?.let { (lastFour, item) -> CardMappingDialog(
+        lastFour,
+        paymentModes,
+        item.transaction.paymentModeId,
+        { pendingCardToMap = null },
+        { modeId -> smsInboxViewModel?.onCreateCardMapping(lastFour, modeId, item); pendingCardToMap = null },
+        onAddPaymentMode = { name, _, iconName, onCreated ->
+            smsInboxViewModel?.addCreditCardPaymentMode(name, iconName, onCreated)
+        }
+    ) }
     confirmAllSnapshot?.let { snapshot ->
         val totals = snapshot.groupBy { it.transaction.currency.uppercase() }.mapValues { (_, rows) -> rows.sumOf { it.transaction.myShareAmount } }
         AlertDialog(onDismissRequest = { confirmAllSnapshot = null }, title = { Text("Confirm all pending?") },

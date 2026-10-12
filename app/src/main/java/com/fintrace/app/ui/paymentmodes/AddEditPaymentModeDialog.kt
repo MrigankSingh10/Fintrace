@@ -47,10 +47,21 @@ import com.fintrace.app.ui.theme.PrimaryEmerald
 fun AddEditPaymentModeDialog(
     mode: PaymentModeEntity?,
     onDismiss: () -> Unit,
-    onSave: (name: String, type: PaymentModeType, iconName: String) -> Unit
+    onSave: (name: String, type: PaymentModeType, iconName: String) -> Unit,
+    allowedTypes: Set<PaymentModeType>? = null
 ) {
+    val availableTypes = remember(mode, allowedTypes) {
+        allowedTypes ?: PaymentModeType.values().filter { it != PaymentModeType.UPI || mode?.type == PaymentModeType.UPI }.toSet()
+    }
     var name by remember { mutableStateOf(mode?.name ?: "") }
-    var selectedType by remember { mutableStateOf(mode?.type ?: PaymentModeType.CREDIT_CARD) }
+    var selectedType by remember {
+        mutableStateOf(
+            mode?.type?.takeIf { it in availableTypes }
+                ?: PaymentModeType.CREDIT_CARD.takeIf { it in availableTypes }
+                ?: availableTypes.firstOrNull()
+                ?: PaymentModeType.CREDIT_CARD
+        )
+    }
     var errorText by remember { mutableStateOf<String?>(null) }
 
     Dialog(onDismissRequest = onDismiss) {
@@ -138,7 +149,7 @@ fun AddEditPaymentModeDialog(
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    PaymentModeType.values().forEach { type ->
+                    availableTypes.forEach { type ->
                         val isSelected = selectedType == type
                         val bg = if (isSelected) PrimaryBlue.copy(alpha = 0.25f) else MaterialTheme.colorScheme.surfaceVariant
                         val border = if (isSelected) PrimaryBlue else MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)

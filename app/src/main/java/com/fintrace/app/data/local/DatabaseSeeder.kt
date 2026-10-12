@@ -18,9 +18,7 @@ object DatabaseSeeder {
 
     val defaultPaymentModes = listOf(
         PaymentModeEntity(id = 1, name = "DEBIT", type = PaymentModeType.BANK_DEBIT, iconName = "AccountBalance", isDefault = true),
-        PaymentModeEntity(id = 2, name = "ICICI Coral", type = PaymentModeType.CREDIT_CARD, iconName = "CreditCard", isDefault = true),
-        PaymentModeEntity(id = 3, name = "ICICI APAY", type = PaymentModeType.CREDIT_CARD, iconName = "CreditCard", isDefault = true),
-        PaymentModeEntity(id = 4, name = "HDFC Neu", type = PaymentModeType.CREDIT_CARD, iconName = "CreditCard", isDefault = true),
+        PaymentModeEntity(id = 2, name = "Credit Card", type = PaymentModeType.CREDIT_CARD, iconName = "CreditCard", isDefault = true),
         PaymentModeEntity(id = 5, name = "CASH", type = PaymentModeType.CASH, iconName = "Payments", isDefault = true)
     )
 

@@ -115,7 +115,7 @@ fun PaymentModeListScreen(
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        text = "No payment modes found.\nTap + to add cards or UPI accounts.",
+                        text = "No payment modes found.\nTap + to add a payment method.",
                         style = MaterialTheme.typography.bodyLarge,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )

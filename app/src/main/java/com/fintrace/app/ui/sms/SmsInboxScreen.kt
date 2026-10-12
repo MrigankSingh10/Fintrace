@@ -5,6 +5,8 @@ import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -57,6 +59,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -71,6 +74,8 @@ import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.animation.core.tween
+import kotlinx.coroutines.delay
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -216,10 +221,12 @@ fun SmsInboxScreen(
             }
             viewModel.undoableActions.collectAsState().value.forEach { action ->
                 Card(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 3.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)) {
-                    Row(Modifier.padding(horizontal = 12.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text("${if (action.action == PendingAction.CONFIRM) "Confirmed" else "Dismissed"} ${action.description}", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
-                        TextButton(onClick = { viewModel.undoPendingAction(action.transactionId) }) { Text("Undo") }
-                    }
+                    PendingActionFeedbackContent(
+                        action = action,
+                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                        onUndo = { viewModel.undoPendingAction(action.transactionId) },
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                    )
                 }
             }
             uiState.statusMessage?.let { msg ->
@@ -448,6 +455,9 @@ fun SmsInboxScreen(
                 onConfirm = { modeId ->
                     viewModel.onCreateCardMapping(lastFour, modeId, item)
                     cardToMap = null
+                },
+                onAddPaymentMode = { name, _, iconName, onCreated ->
+                    viewModel.addCreditCardPaymentMode(name, iconName, onCreated)
                 }
             )
         }
@@ -570,6 +580,16 @@ fun PendingSmsCard(
     val isCardUnmapped = !cardLastFour.isNullOrBlank() && cardMappings.none { it.cardLastFour == cardLastFour }
 
     var isSmsExpanded by remember { mutableStateOf(isRawParse) }
+    var dismissRequested by remember(t.id) { mutableStateOf(false) }
+    val requestDismiss = {
+        if (!dismissRequested) dismissRequested = true
+    }
+    LaunchedEffect(t.id, dismissRequested) {
+        if (dismissRequested) {
+            delay(200)
+            onDismiss()
+        }
+    }
 
     // Derive proper merchant description if current description was a numeric amount or generic placeholder
     val merchantDisplay = remember(t.description, t.smsRawBody, liveParse) {
@@ -594,244 +614,251 @@ fun PendingSmsCard(
         }
     }
 
-    SwipeableReviewCard(
-        title = merchantDisplay,
-        amount = t.myShareAmount,
-        smsBody = t.smsRawBody,
-        modifier = modifier,
-        sender = t.smsSender,
-        transactionType = t.type,
-        dateLabel = dateFormatter.format(Date(t.timestamp)),
-        categoryLabel = item.category?.name,
-        paymentLabel = item.paymentMode?.name,
-        onConfirm = onConfirm,
-        onDismiss = onDismiss,
-        onEdit = onSplitAndEdit,
-        currencyCode = t.currency,
-        customContent = {
-        Column(modifier = Modifier.fillMaxWidth().clickable(enabled = !isIncome) { onSplitAndEdit() }.padding(16.dp)) {
-            // Header: Icon, Merchant, Amount, Dismiss
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                if (!isIncome) {
-                    CategoryIconBadge(
-                        iconName = item.category?.iconName,
-                        colorHex = item.category?.colorHex,
-                        size = 46.dp,
-                        iconSize = 24.dp
+    AnimatedVisibility(
+        visible = !dismissRequested,
+        modifier = modifier.fillMaxWidth(),
+        exit = fadeOut(animationSpec = tween(200)) +
+            slideOutHorizontally(animationSpec = tween(200)) { -it / 3 }
+    ) {
+        SwipeableReviewCard(
+            title = merchantDisplay,
+            amount = t.myShareAmount,
+            smsBody = t.smsRawBody,
+            modifier = Modifier,
+            sender = t.smsSender,
+            transactionType = t.type,
+            dateLabel = dateFormatter.format(Date(t.timestamp)),
+            categoryLabel = item.category?.name,
+            paymentLabel = item.paymentMode?.name,
+            onConfirm = onConfirm,
+            onDismiss = requestDismiss,
+            onEdit = onSplitAndEdit,
+            currencyCode = t.currency,
+            customContent = {
+            Column(modifier = Modifier.fillMaxWidth().clickable(enabled = !isIncome) { onSplitAndEdit() }.padding(16.dp)) {
+                // Header: Icon, Merchant, Amount, Dismiss
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    if (!isIncome) {
+                        CategoryIconBadge(
+                            iconName = item.category?.iconName,
+                            colorHex = item.category?.colorHex,
+                            size = 46.dp,
+                            iconSize = 24.dp
+                        )
+                    } else {
+                        Box(
+                            modifier = Modifier
+                                .size(46.dp)
+                                .clip(CircleShape)
+                                .background(IncomeGreen.copy(alpha = 0.15f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text("+", color = IncomeGreen, style = MaterialTheme.typography.titleLarge)
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.width(12.dp))
+
+                    Column(modifier = Modifier.weight(1f)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = if (isIncome) "Income received" else merchantDisplay,
+                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            if (isRawParse) {
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(4.dp))
+                                        .background(MaterialTheme.colorScheme.tertiaryContainer)
+                                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                                ) {
+                                    Text(
+                                        text = "Partial Parse",
+                                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
+                                        color = MaterialTheme.colorScheme.onTertiaryContainer
+                                    )
+                                }
+                            }
+                        }
+                        Text(
+                            text = dateFormatter.format(Date(t.timestamp)),
+                            style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+
+                    Text(
+                        text = formatCurrency(t.originalAmount, t.currency),
+                        style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                        color = if (isIncome) IncomeGreen else ExpenseRed
                     )
-                } else {
-                    Box(
-                        modifier = Modifier
-                            .size(46.dp)
-                            .clip(CircleShape)
-                            .background(IncomeGreen.copy(alpha = 0.15f)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text("+", color = IncomeGreen, style = MaterialTheme.typography.titleLarge)
+
+                    IconButton(onClick = requestDismiss, modifier = Modifier.size(32.dp)) {
+                        Icon(imageVector = Icons.Default.Close, contentDescription = "Dismiss", tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f), modifier = Modifier.size(18.dp))
                     }
                 }
 
-                Spacer(modifier = Modifier.width(12.dp))
+                if (t.isRecurring) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    RecurringBadge()
+                }
 
-                Column(modifier = Modifier.weight(1f)) {
+                if (!isIncome) {
+                    Spacer(modifier = Modifier.height(10.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
-                            text = if (isIncome) "Income received" else merchantDisplay,
-                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                            color = MaterialTheme.colorScheme.onSurface
+                            text = "Mode: ",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
-                        if (isRawParse) {
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Box(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(4.dp))
-                                    .background(MaterialTheme.colorScheme.tertiaryContainer)
-                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                        PaymentModeBadge(mode = item.paymentMode)
+                    }
+                    if (paymentModes.isNotEmpty()) {
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+                            items(paymentModes, key = { it.id }) { mode ->
+                                FilterChip(selected = t.paymentModeId == mode.id, onClick = { onSelectPaymentMode(mode.id) }, label = { Text(mode.name, style = MaterialTheme.typography.labelSmall) })
+                            }
+                        }
+                    }
+
+                    // Inline card mapping prompt (only for credit cards with unmapped card digits)
+                    if (isCardUnmapped && cardLastFour != null) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Card(
+                            shape = RoundedCornerShape(8.dp),
+                            colors = CardDefaults.cardColors(containerColor = PrimaryBlue.copy(alpha = 0.12f)),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onMapCard(cardLastFour) }
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
                             ) {
+                                Icon(
+                                    imageVector = Icons.Default.CreditCard,
+                                    contentDescription = null,
+                                    tint = PrimaryBlue,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
                                 Text(
-                                    text = "Partial Parse",
-                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
-                                    color = MaterialTheme.colorScheme.onTertiaryContainer
+                                    text = "Card ••$cardLastFour detected — tap to map to a payment mode",
+                                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                                    color = PrimaryBlue,
+                                    modifier = Modifier.weight(1f)
                                 )
                             }
                         }
                     }
+
+                    Spacer(modifier = Modifier.height(10.dp))
                     Text(
-                        text = dateFormatter.format(Date(t.timestamp)),
-                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
+                        text = "Select Category:",
+                        style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                }
-
-                Text(
-                    text = formatCurrency(t.originalAmount, t.currency),
-                    style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
-                    color = if (isIncome) IncomeGreen else ExpenseRed
-                )
-
-                IconButton(onClick = onDismiss, modifier = Modifier.size(32.dp)) {
-                    Icon(imageVector = Icons.Default.Close, contentDescription = "Dismiss", tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f), modifier = Modifier.size(18.dp))
-                }
-            }
-
-            if (t.isRecurring) {
-                Spacer(modifier = Modifier.height(8.dp))
-                RecurringBadge()
-            }
-
-            if (!isIncome) {
-                Spacer(modifier = Modifier.height(10.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        text = "Mode: ",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    PaymentModeBadge(mode = item.paymentMode)
-                }
-                if (paymentModes.isNotEmpty()) {
-                    LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
-                        items(paymentModes, key = { it.id }) { mode ->
-                            FilterChip(selected = t.paymentModeId == mode.id, onClick = { onSelectPaymentMode(mode.id) }, label = { Text(mode.name, style = MaterialTheme.typography.labelSmall) })
-                        }
-                    }
-                }
-
-                // Inline card mapping prompt (only for credit cards with unmapped card digits)
-                if (isCardUnmapped && cardLastFour != null) {
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Card(
-                        shape = RoundedCornerShape(8.dp),
-                        colors = CardDefaults.cardColors(containerColor = PrimaryBlue.copy(alpha = 0.12f)),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { onMapCard(cardLastFour) }
+                    Spacer(modifier = Modifier.height(4.dp))
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.CreditCard,
-                                contentDescription = null,
-                                tint = PrimaryBlue,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = "Card ••$cardLastFour detected — tap to map to a payment mode",
-                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
-                                color = PrimaryBlue,
-                                modifier = Modifier.weight(1f)
+                        items(categories, key = { it.id }) { cat ->
+                            val isSelected = t.categoryId == cat.id
+                            val color = parseColorHex(cat.colorHex)
+
+                            FilterChip(
+                                selected = isSelected,
+                                onClick = { onSelectCategory(cat.id) },
+                                label = { Text(cat.name, style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp)) },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = color.copy(alpha = 0.25f),
+                                    selectedLabelColor = color
+                                )
                             )
                         }
                     }
                 }
 
-                Spacer(modifier = Modifier.height(10.dp))
-                Text(
-                    text = "Select Category:",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                LazyRow(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    items(categories, key = { it.id }) { cat ->
-                        val isSelected = t.categoryId == cat.id
-                        val color = parseColorHex(cat.colorHex)
-
-                        FilterChip(
-                            selected = isSelected,
-                            onClick = { onSelectCategory(cat.id) },
-                            label = { Text(cat.name, style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp)) },
-                            colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = color.copy(alpha = 0.25f),
-                                selectedLabelColor = color
-                            )
-                        )
-                    }
-                }
-            }
-
-            // Raw SMS expander
-            if (!t.smsRawBody.isNullOrBlank()) {
-                Spacer(modifier = Modifier.height(8.dp))
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(6.dp))
-                        .clickable { isSmsExpanded = !isSmsExpanded }
-                        .padding(vertical = 2.dp)
-                ) {
-                    Text(
-                        text = if (isSmsExpanded) "Hide SMS alert" else "Show original SMS",
-                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
-                        color = PrimaryBlue
-                    )
-                    Icon(
-                        imageVector = if (isSmsExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                        contentDescription = null,
-                        tint = PrimaryBlue,
-                        modifier = Modifier.size(16.dp)
-                    )
-                }
-
-                AnimatedVisibility(visible = isSmsExpanded) {
-                    Card(
-                        shape = RoundedCornerShape(8.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                // Raw SMS expander
+                if (!t.smsRawBody.isNullOrBlank()) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 4.dp)
+                            .clip(RoundedCornerShape(6.dp))
+                            .clickable { isSmsExpanded = !isSmsExpanded }
+                            .padding(vertical = 2.dp)
                     ) {
                         Text(
-                            text = t.smsRawBody,
+                            text = if (isSmsExpanded) "Hide SMS alert" else "Show original SMS",
                             style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(8.dp)
+                            color = PrimaryBlue
+                        )
+                        Icon(
+                            imageVector = if (isSmsExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                            contentDescription = null,
+                            tint = PrimaryBlue,
+                            modifier = Modifier.size(16.dp)
                         )
                     }
+
+                    AnimatedVisibility(visible = isSmsExpanded) {
+                        Card(
+                            shape = RoundedCornerShape(8.dp),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 4.dp)
+                        ) {
+                            Text(
+                                text = t.smsRawBody,
+                                style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(8.dp)
+                            )
+                        }
+                    }
                 }
-            }
 
-            Spacer(modifier = Modifier.height(14.dp))
-            Divider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
-            Spacer(modifier = Modifier.height(14.dp))
+                Spacer(modifier = Modifier.height(14.dp))
+                Divider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
+                Spacer(modifier = Modifier.height(14.dp))
 
-            // Action Buttons
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                if (!isIncome) {
-                    OutlinedButton(
-                        onClick = onSplitAndEdit,
+                // Action Buttons
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    if (!isIncome) {
+                        OutlinedButton(
+                            onClick = onSplitAndEdit,
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(imageVector = Icons.Default.CallSplit, contentDescription = null, tint = AccentPurple, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Split & Edit", color = AccentPurple, style = MaterialTheme.typography.labelMedium)
+                        }
+                    }
+
+                    Button(
+                        onClick = onConfirm,
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary),
                         shape = RoundedCornerShape(10.dp),
                         modifier = Modifier.weight(1f)
                     ) {
-                        Icon(imageVector = Icons.Default.CallSplit, contentDescription = null, tint = AccentPurple, modifier = Modifier.size(16.dp))
+                        Icon(imageVector = Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("Split & Edit", color = AccentPurple, style = MaterialTheme.typography.labelMedium)
+                        Text("Confirm", style = MaterialTheme.typography.labelMedium)
                     }
                 }
-
-                Button(
-                    onClick = onConfirm,
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary),
-                    shape = RoundedCornerShape(10.dp),
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Icon(imageVector = Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("Confirm", style = MaterialTheme.typography.labelMedium)
-                }
             }
-        }
-    })
+        })
+    }
 }

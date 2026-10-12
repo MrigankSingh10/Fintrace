@@ -1,0 +1,7 @@
+Fintrace 1.4.1
+
+• Simplified the default payment methods and card-mapping flow.
+• Added the option to create a credit card when an unmapped card is detected.
+• Improved dismissed-transaction animation, amount feedback, and Undo visibility.
+• Improved budget-action visibility in light and dark themes.
+• Simplified the category report heading.

@@ -29,6 +29,8 @@ import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -384,7 +386,14 @@ private fun CategoryGlanceSection(
                         }
                     }
                 }
-                OutlinedButton(onClick = onOpenBulkBudgets, modifier = Modifier.fillMaxWidth()) { Text("Edit category budgets") }
+                Button(
+                    onClick = onOpenBulkBudgets,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary
+                    )
+                ) { Text("Edit category budgets") }
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.align(Alignment.End)) {
                     TextButton(onClick = onManageCategories) { Text("Manage categories") }
                     TextButton(onClick = onManagePaymentModes) { Text("Payment modes") }
@@ -402,7 +411,14 @@ private fun BudgetAccessCard(onOpenBudgets: () -> Unit, onManageCategories: () -
             Text("Your categories", style = MaterialTheme.typography.titleMedium)
             Text("Set category budgets now; your spending breakdown will appear as confirmed expenses are added.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = onOpenBudgets, modifier = Modifier.weight(1f)) { Text("Edit budgets") }
+                Button(
+                    onClick = onOpenBudgets,
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary
+                    )
+                ) { Text("Edit budgets") }
                 TextButton(onClick = onManageCategories, modifier = Modifier.weight(1f)) { Text("Categories") }
             }
             TextButton(onClick = onManagePaymentModes, modifier = Modifier.align(Alignment.End)) { Text("Payment modes") }

@@ -34,7 +34,13 @@ data class SmsInboxUiState(
 )
 
 enum class PendingAction { CONFIRM, DISMISS }
-data class UndoablePendingAction(val transactionId: Long, val action: PendingAction, val description: String)
+data class UndoablePendingAction(
+    val transactionId: Long,
+    val action: PendingAction,
+    val description: String,
+    val originalAmount: Double,
+    val currency: String
+)
 
 class SmsInboxViewModel(
     private val repository: FinanceRepository,
@@ -65,7 +71,15 @@ class SmsInboxViewModel(
 
     val undoableActions: StateFlow<List<UndoablePendingAction>> = combine(rawPendingTransactions, actionCoordinator.actions) { rows, actions ->
         actions.filterValues { it.phase == PendingActionPhase.UNDOABLE }.mapNotNull { (id, record) ->
-            rows.firstOrNull { it.transaction.id == id }?.let { UndoablePendingAction(id, record.action, it.transaction.description) }
+            rows.firstOrNull { it.transaction.id == id }?.let { item ->
+                UndoablePendingAction(
+                    transactionId = id,
+                    action = record.action,
+                    description = item.transaction.description,
+                    originalAmount = item.transaction.originalAmount,
+                    currency = item.transaction.currency
+                )
+            }
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
@@ -219,6 +233,31 @@ class SmsInboxViewModel(
             item?.let {
                 val updated = it.transaction.copy(paymentModeId = paymentModeId)
                 repository.saveTransaction(updated, it.splits)
+            }
+        }
+    }
+
+    fun addCreditCardPaymentMode(
+        name: String,
+        iconName: String,
+        onCreated: (Long) -> Unit
+    ) {
+        viewModelScope.launch {
+            try {
+                val id = repository.addPaymentMode(
+                    PaymentModeEntity(
+                        name = name.trim(),
+                        type = PaymentModeType.CREDIT_CARD,
+                        iconName = iconName,
+                        isDefault = false
+                    )
+                )
+                onCreated(id)
+            } catch (error: Exception) {
+                if (error is CancellationException) throw error
+                _uiState.value = _uiState.value.copy(
+                    actionError = error.message ?: "Could not add this payment method."
+                )
             }
         }
     }
