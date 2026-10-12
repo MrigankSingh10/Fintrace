@@ -1,6 +1,6 @@
 # Fintrace Privacy Policy
 
-**Effective date: October 8, 2026**
+**Effective date: October 12, 2026**
 
 Fintrace is an offline personal-finance Android application maintained by **Mrigank Singh** as the **Fintrace project**. This policy describes data handled by the app installed on your device. It does not describe a hosted service; the developer does not operate a Fintrace backend.
 
@@ -8,13 +8,15 @@ Fintrace is an offline personal-finance Android application maintained by **Mrig
 
 If you grant SMS permissions, Fintrace reads the sender/address, message body, and message timestamp from SMS messages. When you choose to scan your inbox, Fintrace scans messages from the preceding 30 days. While the app is closed, Android can deliver newly received SMS messages to Fintrace for parsing. These features support detecting possible financial transaction alerts and creating records for your review. The parser may match financial transaction messages from different senders; it does not require that a sender be a bank.
 
+When SMS permissions are not already granted, Fintrace shows an in-app disclosure before Android's permission dialog on the first eligible launch. Your choice to handle or defer that startup prompt is stored as a local preference so the app does not repeatedly interrupt you. You can return to the SMS review area later to grant access.
+
 For messages that match, Fintrace stores the original SMS body, sender, and source timestamp with a locally stored transaction. It also stores parsed financial details such as description, amount, date, currency, transaction type, payment mode, and parse confidence. Messages that do not match are not added as transaction records by the parser. Fintrace does not modify or delete the source SMS in your messaging app.
 
 You can use Fintrace without SMS access. Manual transaction entry remains available if you deny or later revoke SMS permissions.
 
 ## Information stored on the device
 
-Fintrace stores information you enter or that it derives for your finance records in the app's local Room database. This can include transactions and their status (including Pending Review and Dismissed), categories, payment modes and card mappings, split participants and shares, recurring transaction details, monthly income or budget settings, and SMS-derived details described above. Theme preference is stored locally. Fintrace does not require an account and does not collect bank login credentials.
+Fintrace stores information you enter or that it derives for your finance records in the app's local Room database. This can include transactions and their status (including Pending Review and Dismissed), categories, fixed or percentage category budgets, payment modes and card mappings, split participants and shares, recurring transaction details, monthly income adjustments, and SMS-derived details described above. Theme and permission-prompt preferences are stored locally. Fintrace does not require an account and does not collect bank login credentials.
 
 ## Collection, sharing, and transfer
 

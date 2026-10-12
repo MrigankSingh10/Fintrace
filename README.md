@@ -4,7 +4,7 @@
 
 Built with Kotlin, Jetpack Compose, Material 3, and Room. Fintrace processes messages on the device, keeps your personal share separate from the full bill, and brings income and spending into a monthly dashboard. No bank login or backend account is required.
 
-[Getting started](#getting-started) · [Architecture](docs/ARCHITECTURE.md) · [Testing](TESTING_GUIDE.md) · [Contributing](CONTRIBUTING.md) · [Privacy](PRIVACY.md)
+[Latest release](https://github.com/MrigankSingh10/Fintrace/releases/tag/v1.4.0) · [Getting started](#getting-started) · [Architecture](docs/ARCHITECTURE.md) · [Testing](TESTING_GUIDE.md) · [Contributing](CONTRIBUTING.md) · [Privacy](PRIVACY.md)
 
 ## A look inside
 
@@ -12,16 +12,16 @@ Built with Kotlin, Jetpack Compose, Material 3, and Room. Fintrace processes mes
 | --- | --- | --- |
 | ![Fintrace dashboard](screenshots/dashboard.png) | ![Fintrace transactions](screenshots/transactions.png) | ![Fintrace analytics](screenshots/analytics.png) |
 
-These repository screenshots illustrate the app; newer controls may differ from the captured version.
-
 ## What it does
 
-- **Review banking alerts:** Import supported SMS formats into Pending Review, then confirm or dismiss them. Dismissed messages stay excluded from rescans and can be restored for review.
+- **Review banking alerts:** On first launch, Fintrace explains why SMS access is useful before requesting permission. Supported messages enter Pending Review, where they can be confirmed, dismissed, or restored.
 - **Track your share:** Record the full bill and individual split amounts. Spending uses your share; reports retain the original amount.
-- **Budget monthly income:** Every confirmed income transaction counts, whatever the message wording. A persistent manual adjustment lets you raise or lower the month.
-- **Browse by month:** Navigate history by month and search or filter within the selected period.
-- **Organize expenses:** Manage categories, icons, colors, and payment modes.
-- **Explore spending:** View category charts, payment-mode breakdowns, spending pace, and split amounts owed.
+- **Budget monthly income:** Every confirmed income transaction counts, and a persistent manual adjustment can raise or lower a month.
+- **Set category budgets:** Use a fixed amount or a percentage of monthly income, including across multi-month analytics ranges.
+- **Browse by month:** Navigate history by month, keep recurring transactions together, and search or filter within the selected period.
+- **Enter amounts naturally:** Amount fields are right-aligned and display Indian digit grouping while preserving the numeric value being edited.
+- **Organize expenses:** Manage categories, icons, colors, payment modes, recurring records, and split bills.
+- **Explore spending:** View category charts, payment-mode breakdowns, budget progress, and split amounts owed.
 - **Export a report:** Save an `.xlsx` expense report through Android's file picker.
 - **Choose light or dark:** Switch themes from the app bar; your choice persists across restarts.
 
@@ -31,9 +31,15 @@ The parser includes examples for Indian banking alerts such as ICICI, HDFC, and 
 
 A shared purchase has two useful numbers: what was charged and what you personally spent. Fintrace models both, while giving users a review step between SMS detection and financial totals.
 
-The implementation demonstrates declarative Compose screens, custom Canvas charts, reactive ViewModel state with coroutines and Flow, Room relationships and SQL aggregates, transactional split writes, Android SMS integration, and spreadsheet generation using the document picker.
+The implementation demonstrates declarative Compose screens, edge-to-edge Android UI, custom Canvas charts, reactive ViewModel state with coroutines and Flow, Room relationships and migrations, SQL aggregates, transactional split and SMS writes, Android SMS integration, and spreadsheet generation using the document picker.
 
 See the [architecture walkthrough](docs/ARCHITECTURE.md) for code organization, implementation choices, and tradeoffs.
+
+## Latest release
+
+[Fintrace v1.4.0](https://github.com/MrigankSingh10/Fintrace/releases/tag/v1.4.0) adds percentage-based category budgets, improved transaction grouping and entry, the startup SMS permission disclosure, Indian amount formatting, edge-to-edge display, and an optimized release build.
+
+This release uses package `com.mrigank.fintrace`. GitHub releases v1.3.0 and earlier used `com.fintrace.app`, so Android treats v1.4.0 as a separate installation with separate local data; it does not upgrade or automatically migrate the older app.
 
 ## Getting started
 
@@ -69,9 +75,9 @@ Open Fintrace, grant SMS permissions to test import, and send a synthetic messag
 adb -e emu sms send 5551234 "ICICI Bank Acct XX123 debited for Rs 250.00; Demo Shop credited. Ref DEMO001"
 ```
 
-Find it in Pending Review and confirm it to include it in spending. Use a different reference for each new example: identical SMS bodies are treated as duplicates.
+Find it in Pending Review and confirm it to include it in spending. Use a different fictional reference for each example so test records are easy to distinguish. Duplicate suppression uses the SMS body, sender, and source timestamp.
 
-Use a dedicated emulator for development. Debug and release currently share the `com.mrigank.fintrace` application ID; a debug install is not automatically isolated from a daily-use Play installation. The existing GitHub release uses `com.fintrace.app` and installs as a separate app, with separate local data. See the [testing guide](TESTING_GUIDE.md) for setup and troubleshooting.
+Use a dedicated emulator for development. Debug and release currently share the `com.mrigank.fintrace` application ID; a debug install is not automatically isolated from a daily-use Play installation. GitHub release v1.4.0 uses this same new package identity. Releases v1.3.0 and earlier used `com.fintrace.app`, so Android installs v1.4.0 alongside them with separate local data and no automatic transfer. See the [testing guide](TESTING_GUIDE.md) for setup and troubleshooting.
 
 ## How totals work
 
@@ -81,6 +87,8 @@ Use a dedicated emulator for development. Debug and release currently share the 
 | Confirmed expense | Personal share contributes to spending; full bill is retained for split reporting |
 | Confirmed income | Contributes to monthly income regardless of wording; category/payment-mode badges are hidden |
 | Manual adjustment | Added to confirmed income and kept for the whole month; may be negative |
+| Fixed category budget | Uses the stored amount for that category |
+| Percentage category budget | Applies the percentage to each relevant month's nonnegative income, then sums the results |
 | In-app category percentage | Category personal-share expense divided by the monthly income denominator |
 | Manual transaction | Saving the form currently confirms it directly |
 
@@ -93,7 +101,7 @@ Donut slice sizes and Excel category percentages currently describe shares of sp
 ./gradlew assembleDebug
 ```
 
-Local tests cover selected SMS formats, basic split calculations, month boundaries, and status conversion. Reports are generated at `app/build/reports/tests/testDebugUnitTest/index.html`.
+Local tests cover SMS parsing and source identity, income and percentage-budget rules, splits and recurrence, month boundaries, amount formatting, presentation ordering, and status conversion. Reports are generated at `app/build/reports/tests/testDebugUnitTest/index.html`.
 
 UI, database persistence, and device-specific SMS behavior still need emulator/device verification. Follow the [manual checklist](TESTING_GUIDE.md#feature-verification-checklist).
 

@@ -11,12 +11,17 @@ Google Play policy before every release.
   `1.4.0` for this Play build.
 - Keep the keystore and passwords outside Git. Back up the keystore securely.
 - Enroll in Play App Signing and securely back up the upload key. The Play app
-  uses a new application ID, so it is a separate Android installation from the
-  existing GitHub app (`com.fintrace.app`). It cannot update that installation
-  or access its local data. Users who want both can install both; no automatic
-  data migration is provided.
+  uses a new application ID, so it is a separate Android installation from
+  GitHub releases v1.3.0 and earlier (`com.fintrace.app`). It cannot update those
+  installations or access their local data. GitHub release v1.4.0 uses the new
+  `com.mrigank.fintrace` identity. No automatic cross-package data migration is
+  provided.
 - Verify the uploaded bundle reports package `com.mrigank.fintrace`, target API
-  36, and the intended version before promoting it beyond internal testing.
+  36, and the intended version before rolling it out to closed testers.
+- Play Console may warn that the bundle contains native code without debug
+  symbols because AndroidX supplies `libandroidx.graphics.path.so`. This is a
+  non-blocking symbolication warning for a prebuilt dependency, not a signing or
+  bundle-validity error. Do not upload the R8/ProGuard mapping as native symbols.
 
 Official signing guidance:
 <https://developer.android.com/studio/publish/app-signing>
@@ -99,9 +104,10 @@ Official asset requirements:
 
 ## Test and rollout
 
-1. Upload the signed AAB to Internal testing first.
+1. Upload the signed AAB directly to the intended Closed testing track and add
+   the tester list or group before rollout.
 2. Review Play's automated pre-launch report and policy alerts.
-3. Test install/upgrade, SMS denial and grant, inbox scan, incoming SMS, manual
+3. Test fresh install, SMS denial and grant, inbox scan, incoming SMS, manual
    entry, recurring transactions, split bills, export, light/dark themes, and
    database retention on representative devices.
 4. If the developer account is a personal account created after November 13,

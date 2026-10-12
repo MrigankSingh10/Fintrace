@@ -5,10 +5,10 @@ Read the [README](README.md), [architecture notes](docs/ARCHITECTURE.md), and [t
 ## Development workflow
 
 1. Fork the repository and create a focused branch.
-2. Configure JDK 17 and Android SDK Platform 34.
+2. Configure JDK 17 and Android SDK Platform 36.
 3. Reproduce the problem with synthetic data on a dedicated emulator.
 4. Implement the change and add relevant regression coverage.
-5. Run `./gradlew testDebugUnitTest` and `./gradlew assembleDebug`.
+5. Run `./gradlew testDebugUnitTest` and `./gradlew assembleDebug`. Run `./gradlew lintDebug` for release-facing changes.
 6. Open a pull request explaining the problem, new behavior, and verification.
 
 For UI changes, include screenshots with fictional data and check both themes. State which checks were not run; a passing unit suite is not device verification.
