@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -24,6 +25,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.MarkEmailUnread
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
@@ -40,8 +43,13 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -73,6 +81,24 @@ import java.text.SimpleDateFormat
 import java.time.YearMonth
 import java.util.Date
 import java.util.Locale
+
+internal fun categoryGlanceToggleLabel(isExpanded: Boolean): String =
+    if (isExpanded) "Collapse top categories" else "Expand top categories"
+
+internal fun dashboardCategoryBudgetSubtitle(category: CategorySpendSummary): String? {
+    val isConfigured = category.configuredBudgetAmount != null || category.budgetPercentage != null
+    if (!isConfigured) return null
+
+    val effectiveBudget = category.budgetAmount ?: 0.0
+    val utilization = if (effectiveBudget > 0.0) {
+        (category.totalMyShareSpent / effectiveBudget).coerceAtLeast(0.0)
+    } else {
+        null
+    }
+    val utilizationLabel = utilization?.let { "${String.format(Locale.getDefault(), "%.0f", it * 100)}% used" }
+        ?: if (category.budgetPercentage != null) "no income base" else "no spend capacity"
+    return "Budget ${formatCurrency(effectiveBudget)} · $utilizationLabel"
+}
 
 @Composable
 fun DashboardScreen(
@@ -188,6 +214,8 @@ fun DashboardScreen(
         CategoryBudgetDialog(
             categoryName = state.categoryName,
             currentBudget = state.currentBudget,
+            monthlyIncome = state.monthlyIncome,
+            otherPercentageBudgets = state.otherPercentageBudgets,
             onSave = { viewModel.onSaveCategoryBudget(state.categoryId, it) },
             onDismiss = viewModel::onDismissCategoryBudgetDialog
         )
@@ -300,49 +328,67 @@ private fun CategoryGlanceSection(
     onManageCategories: () -> Unit,
     onManagePaymentModes: () -> Unit
 ) {
+    var expanded by rememberSaveable { mutableStateOf(true) }
     val shape = RoundedCornerShape(22.dp)
     Card(modifier = Modifier.fillMaxWidth().fintraceCardBorder(shape), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), shape = shape) {
         Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Top categories", modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
+                Row(
+                    modifier = Modifier
+                        .weight(1f)
+                        .heightIn(min = 48.dp)
+                        .clickable(role = Role.Button) { expanded = !expanded }
+                        .semantics(mergeDescendants = true) {
+                            contentDescription = categoryGlanceToggleLabel(expanded)
+                            stateDescription = if (expanded) "Expanded" else "Collapsed"
+                        },
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("Top categories", modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
+                    Icon(
+                        imageVector = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
                 TextButton(onClick = onSeeAll) { Text("See all") }
             }
-            categories.forEach { category ->
-                val share = dashboardCategoryShare(category.totalMyShareSpent, totalSpent)
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth().clickable { onEditBudget(category) },
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        CategoryIcon(category.iconName, category.colorHex, size = 38.dp, iconSize = 19.dp)
-                        Spacer(Modifier.width(10.dp))
-                        Column(Modifier.weight(1f)) {
-                            Text(category.categoryName, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            Text("${String.format(Locale.getDefault(), "%.1f", share)}% of spending", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (expanded) {
+                categories.forEach { category ->
+                    val share = dashboardCategoryShare(category.totalMyShareSpent, totalSpent)
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().clickable { onEditBudget(category) },
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            CategoryIcon(category.iconName, category.colorHex, size = 38.dp, iconSize = 19.dp)
+                            Spacer(Modifier.width(10.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(category.categoryName, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text("${String.format(Locale.getDefault(), "%.1f", share)}% of spending", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            MoneyText(category.totalMyShareSpent, style = MaterialTheme.typography.titleSmall)
                         }
-                        MoneyText(category.totalMyShareSpent, style = MaterialTheme.typography.titleSmall)
-                    }
-                    LinearProgressIndicator(
-                        progress = (share / 100.0).toFloat().coerceIn(0f, 1f),
-                        color = MaterialTheme.colorScheme.primary,
-                        trackColor = MaterialTheme.colorScheme.surfaceVariant,
-                        modifier = Modifier.fillMaxWidth().height(5.dp).clip(CircleShape)
-                    )
-                    val budget = category.budgetAmount?.takeIf { it > 0.0 }
-                    if (budget != null) {
-                        val utilization = (category.totalMyShareSpent / budget).coerceAtLeast(0.0)
-                        Text(
-                            "Budget ${formatCurrency(budget)} · ${String.format(Locale.getDefault(), "%.0f", utilization * 100)}% used",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        LinearProgressIndicator(
+                            progress = (share / 100.0).toFloat().coerceIn(0f, 1f),
+                            color = MaterialTheme.colorScheme.primary,
+                            trackColor = MaterialTheme.colorScheme.surfaceVariant,
+                            modifier = Modifier.fillMaxWidth().height(5.dp).clip(CircleShape)
                         )
+                        dashboardCategoryBudgetSubtitle(category)?.let { subtitle ->
+                            Text(
+                                subtitle,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     }
                 }
-            }
-            OutlinedButton(onClick = onOpenBulkBudgets, modifier = Modifier.fillMaxWidth()) { Text("Edit category budgets") }
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.align(Alignment.End)) {
-                TextButton(onClick = onManageCategories) { Text("Manage categories") }
-                TextButton(onClick = onManagePaymentModes) { Text("Payment modes") }
+                OutlinedButton(onClick = onOpenBulkBudgets, modifier = Modifier.fillMaxWidth()) { Text("Edit category budgets") }
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.align(Alignment.End)) {
+                    TextButton(onClick = onManageCategories) { Text("Manage categories") }
+                    TextButton(onClick = onManagePaymentModes) { Text("Payment modes") }
+                }
             }
         }
     }
@@ -394,7 +440,8 @@ private fun RecentTransactionsSection(
         } else {
             transactions.forEach { item ->
                 val dateDetail = SimpleDateFormat("dd MMM · h:mm a", Locale.getDefault()).format(Date(item.transaction.timestamp))
-                val detail = listOfNotNull(
+                val isIncome = item.transaction.type == TransactionType.INCOME
+                val detail = if (isIncome) null else listOfNotNull(
                     item.paymentMode?.name,
                     dateDetail
                 ).joinToString(" · ")
@@ -406,6 +453,7 @@ private fun RecentTransactionsSection(
                     categoryIcon = item.category?.iconName,
                     categoryColorHex = item.category?.colorHex,
                     detail = detail,
+                    incomeDetail = if (isIncome) dateDetail else null,
                     type = item.transaction.type,
                     isRecurring = item.transaction.isRecurring,
                     currencyCode = item.transaction.currency,

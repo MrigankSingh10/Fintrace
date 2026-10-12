@@ -320,6 +320,29 @@ class SmsParserTest {
     }
 
     @Test
+    fun futureStandingInstructionRemindersAreRejectedButCompletedDebitsAreParsed() {
+        val futureReminders = listOf(
+            "Payment of INR 149.00 towards Merchant Google Play - Content Purchase Services to be debited from ICICI Bank Debit Card XXXX, as per Standing Instruction XXXXXXXX, is due by 12/10/2026. To cancel this debit or your Standing Instructions, visit www.icici.bank.in - Personal - Cards - Manage Standing Instructions. Call 1800 1080 for queries.",
+            "ICICI Bank: Your Standing Instruction for Google Play Content Purchase Services of Rs.149.00 is due by 20-Sep-26 and will be debited from your account.",
+            "Your standing instruction for INR 149.00 is scheduled to be debited on 20-Sep-26.",
+            "Mandate payment of INR 499.00 is due on 28-Sep-26; the amount will be debited from your account."
+        )
+
+        futureReminders.forEach { sms ->
+            assertNull("Future debit reminder must not be imported: $sms", SmsParser.parse(sms, "ICICIB"))
+        }
+
+        val completedStandingInstruction = SmsParser.parse(
+            "ICICI Bank: Rs.149.00 has been debited from your account for Google Play Content Purchase Services under your standing instruction.",
+            "ICICIB"
+        )
+        assertNotNull("Completed standing-instruction debit should still parse", completedStandingInstruction)
+        assertEquals(149.0, completedStandingInstruction!!.amount, 0.001)
+        assertEquals(TransactionType.EXPENSE, completedStandingInstruction.transactionType)
+        assertEquals(PaymentModeType.BANK_DEBIT, completedStandingInstruction.paymentModeType)
+    }
+
+    @Test
     fun testCompletedCashbackRefundAndSalaryCreditsAccepted() {
         val cashback = SmsParser.parse("Cashback of INR 50 credited to your Account XX857.", "ICICIB")
         val refund = SmsParser.parse("Refund of INR 275 has been processed for your card XX1122.", "HDFCBK")

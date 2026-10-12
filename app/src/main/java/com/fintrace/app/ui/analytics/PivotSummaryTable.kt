@@ -95,7 +95,15 @@ fun PivotSummaryTable(
                             Cell(formatCurrency(cat.totalMyShareSpent), shareWidth, alignEnd = true, emphasized = true)
                             Cell("${String.format("%.1f", ratio)}%", percentWidth, alignEnd = true, secondary = true)
                             Cell(formatCurrency(cat.totalOriginalSpent), originalWidth, alignEnd = true, secondary = true)
-                            Cell(cat.budgetAmount?.let(::formatCurrency) ?: "-", budgetWidth, alignEnd = true, secondary = true)
+                            Cell(
+                                cat.budgetAmount?.let { amount ->
+                                    val percentage = cat.budgetPercentage
+                                    if (percentage == null) formatCurrency(amount) else "${formatCurrency(amount)} (${percentage}%)"
+                                } ?: "-",
+                                budgetWidth,
+                                alignEnd = true,
+                                secondary = true
+                            )
                             Cell(cat.budgetRemaining?.let(::formatCurrency) ?: "-", remainingWidth, alignEnd = true,
                                 color = if ((cat.budgetRemaining ?: 0.0) < 0.0) ExpenseRed else MaterialTheme.colorScheme.onSurface)
                             Cell(cat.budgetUtilization?.let { String.format("%.1f%%", it * 100.0) } ?: "-", utilizationWidth,

@@ -39,11 +39,11 @@ See the [architecture walkthrough](docs/ARCHITECTURE.md) for code organization, 
 
 ### Requirements
 
-- JDK 17 and Android SDK Platform 34.
+- JDK 17 and Android SDK Platform 36.
 - Android Studio for SDK/device setup, or an existing command-line Android SDK installation.
 - An emulator or test device running Android 8.0 / API 26 or later.
 
-The wrapper is included: Gradle 8.7, Android Gradle Plugin 8.4.2, and Kotlin 1.9.22 are configured in the project.
+The wrapper is included: Gradle 8.11.1, Android Gradle Plugin 8.10.1, and Kotlin 2.2.21 are configured in the project. The app compiles and targets API 36, with a minimum supported Android version of API 26.
 
 ### Build and run
 

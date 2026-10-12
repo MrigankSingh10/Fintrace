@@ -18,5 +18,7 @@ data class CategoryEntity(
     val isDefault: Boolean = false,
     val displayOrder: Int = 0,
     @ColumnInfo(name = "budget_amount")
-    val budgetAmount: Double? = null
+    val budgetAmount: Double? = null,
+    @ColumnInfo(name = "budget_percentage")
+    val budgetPercentage: Double? = null
 )

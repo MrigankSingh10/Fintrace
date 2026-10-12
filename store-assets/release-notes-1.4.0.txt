@@ -1,0 +1,7 @@
+Fintrace 1.4.0
+
+• Set percentage-based budgets for individual categories.
+• Review transactions with clearer list grouping and updated entry controls.
+• Improved SMS permission and message review flows.
+• Amount entry now uses Indian digit grouping.
+• Updated edge-to-edge display and optimized app bundle.

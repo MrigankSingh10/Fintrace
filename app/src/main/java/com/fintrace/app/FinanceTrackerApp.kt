@@ -65,6 +65,7 @@ class FinanceTrackerApp : Application() {
         normalizeLegacyIncomeAdjustments()
         backfillTransactionParses()
         cleanupInvalidPendingSmsImports()
+        cleanupFutureDebitReminderImports()
         materializeRecurringTransactions()
     }
 
@@ -183,8 +184,31 @@ class FinanceTrackerApp : Application() {
                 val txDao = database.transactionDao()
                 val pendingSmsRows = txDao.getPendingTransactionsWithSmsBody()
                 SmsPendingCleanup.invalidRows(pendingSmsRows).forEach { row ->
-                    txDao.deleteTransaction(row)
+                    row.smsRawBody?.let { body ->
+                        txDao.deletePendingSmsIfBodyMatches(row.id, body)
+                    }
                 }
+                prefs.edit().putBoolean(cleanupKey, true).apply()
+            }
+        }
+    }
+
+    /** Separate migration for previously accepted future-debit reminders. */
+    private fun cleanupFutureDebitReminderImports() {
+        val prefs = getSharedPreferences("sms_parser_cleanup", MODE_PRIVATE)
+        val cleanupKey = "future_debit_v2_done"
+        if (prefs.getBoolean(cleanupKey, false)) return
+        applicationScope.launch {
+            runCatching {
+                val txDao = database.transactionDao()
+                val pendingSmsRows = txDao.getPendingTransactionsWithSmsBody()
+                SmsPendingCleanup.futureDebitReminderRows(pendingSmsRows).forEach { row ->
+                    row.smsRawBody?.let { body ->
+                        txDao.deletePendingSmsIfBodyMatches(row.id, body)
+                    }
+                }
+                // Persist completion only after every candidate has been processed. A thrown
+                // query/delete therefore leaves the marker unset and retries on next launch.
                 prefs.edit().putBoolean(cleanupKey, true).apply()
             }
         }

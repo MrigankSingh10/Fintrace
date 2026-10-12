@@ -19,6 +19,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -39,16 +40,24 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.fintrace.app.data.local.entity.CategoryEntity
 import com.fintrace.app.ui.components.formatCurrency
+import com.fintrace.app.data.model.CategoryBudgetConfiguration
+import com.fintrace.app.data.model.CategoryBudgetMode
+import com.fintrace.app.data.model.CategoryBudgetRules
 
 @Composable
 fun BulkEditBudgetsDialog(
     budgets: BulkBudgetEditState,
     onDismiss: () -> Unit,
-    onSave: (Map<Long, Double?>) -> Unit,
+    onSave: (Map<Long, CategoryBudgetConfiguration>) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    var configurations by remember(budgets.categories) {
+        mutableStateOf(budgets.categories.associate { category ->
+            category.id to CategoryBudgetRules.fromStored(category.budgetAmount, category.budgetPercentage)
+        })
+    }
     var budgetTexts by remember(budgets.categories) {
-        mutableStateOf(budgets.categories.associate { it.id to (it.budgetAmount?.takeIf { amount -> amount > 0 }?.toString() ?: "") })
+        mutableStateOf(configurations.mapValues { (_, configuration) -> configuration.value?.toString().orEmpty() })
     }
     var errorText by remember { mutableStateOf<String?>(null) }
 
@@ -71,7 +80,7 @@ fun BulkEditBudgetsDialog(
                 }
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    "Budgets apply to this category every month. Leave blank or enter 0 to remove a budget.",
+                    "Choose a fixed amount, a percentage of monthly income, or no budget for each category.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -80,14 +89,35 @@ fun BulkEditBudgetsDialog(
                     items(budgets.categories, key = CategoryEntity::id) { category ->
                         BudgetInput(
                             category = category,
+                            mode = configurations[category.id]?.mode ?: CategoryBudgetMode.NONE,
                             value = budgetTexts[category.id].orEmpty(),
+                            monthlyIncome = budgets.monthlyIncome,
+                            onModeChange = { mode ->
+                                if (mode != configurations[category.id]?.mode) {
+                                    configurations = configurations + (category.id to CategoryBudgetConfiguration(mode))
+                                    budgetTexts = budgetTexts + (category.id to "")
+                                    errorText = null
+                                }
+                            },
                             onValueChange = { value ->
                                 budgetTexts = budgetTexts + (category.id to value.filter { it.isDigit() || it == '.' })
+                                configurations = configurations + (category.id to CategoryBudgetConfiguration(configurations[category.id]?.mode ?: CategoryBudgetMode.NONE))
                                 errorText = null
                             },
-                            onClear = { budgetTexts = budgetTexts + (category.id to ""); errorText = null }
+                            onClear = {
+                                configurations = configurations + (category.id to CategoryBudgetConfiguration(CategoryBudgetMode.NONE))
+                                budgetTexts = budgetTexts + (category.id to "")
+                                errorText = null
+                            }
                         )
                     }
+                }
+                val totalPercentage = configurations.entries.sumOf { (id, configuration) ->
+                    if (configuration.mode == CategoryBudgetMode.PERCENTAGE) budgetTexts[id].orEmpty().toDoubleOrNull() ?: 0.0 else 0.0
+                }
+                if (totalPercentage > 100.0) {
+                    Text("Combined percentage budgets are ${String.format("%.1f", totalPercentage)}% of income.",
+                        color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                 }
                 if (errorText != null) {
                     Text(errorText!!, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall,
@@ -102,14 +132,18 @@ fun BulkEditBudgetsDialog(
                     }
                     Button(
                         onClick = {
-                            val parsed = budgetTexts.mapValues { (_, text) ->
-                                if (text.isBlank()) null else text.toDoubleOrNull()
+                            val invalid = configurations.any { (id, configuration) ->
+                                if (configuration.mode == CategoryBudgetMode.NONE) false else {
+                                    val value = budgetTexts[id].orEmpty().toDoubleOrNull()
+                                    value == null || !value.isFinite() || value < 0.0 ||
+                                        (configuration.mode == CategoryBudgetMode.PERCENTAGE && value > 100.0)
+                                }
                             }
-                            val invalid = budgetTexts.values.any { text ->
-                                text.isNotBlank() && (text.toDoubleOrNull()?.let { !it.isFinite() || it < 0.0 } ?: true)
-                            }
-                            if (invalid) errorText = "Enter a finite, non-negative amount for each budget."
-                            else onSave(parsed.mapValues { (_, amount) -> amount?.takeIf { it > 0.0 } })
+                            if (invalid) errorText = "Enter a valid non-negative amount, or a percentage from 0 to 100, for each budget."
+                            else onSave(configurations.mapValues { (id, configuration) ->
+                                if (configuration.mode == CategoryBudgetMode.NONE) configuration
+                                else configuration.copy(value = budgetTexts[id]?.toDoubleOrNull())
+                            })
                         },
                         modifier = Modifier.weight(1f), shape = RoundedCornerShape(10.dp)
                     ) { Text("Save All") }
@@ -122,7 +156,10 @@ fun BulkEditBudgetsDialog(
 @Composable
 private fun BudgetInput(
     category: CategoryEntity,
+    mode: CategoryBudgetMode,
     value: String,
+    monthlyIncome: Double,
+    onModeChange: (CategoryBudgetMode) -> Unit,
     onValueChange: (String) -> Unit,
     onClear: () -> Unit
 ) {
@@ -130,17 +167,23 @@ private fun BudgetInput(
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
             Text(category.name, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium,
                 maxLines = 1, modifier = Modifier.weight(1f))
-            if (category.budgetAmount != null && category.budgetAmount > 0) {
-                Text("Current ${formatCurrency(category.budgetAmount)}", style = MaterialTheme.typography.labelSmall,
+            if (category.budgetAmount != null || category.budgetPercentage != null) {
+                Text(if (category.budgetPercentage != null) "Current ${category.budgetPercentage}%" else "Current ${formatCurrency(category.budgetAmount ?: 0.0)}", style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
-        OutlinedTextField(
+        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            listOf(CategoryBudgetMode.NONE to "None", CategoryBudgetMode.FIXED to "Amount", CategoryBudgetMode.PERCENTAGE to "%").forEach { (option, label) ->
+                FilterChip(selected = mode == option, onClick = { onModeChange(option) }, label = { Text(label) })
+            }
+        }
+        if (mode != CategoryBudgetMode.NONE) OutlinedTextField(
             value = value,
             onValueChange = onValueChange,
-            label = { Text("Monthly budget") },
-            placeholder = { Text("No budget") },
-            prefix = { Text("₹ ", fontWeight = FontWeight.Bold) },
+            label = { Text(if (mode == CategoryBudgetMode.FIXED) "Monthly amount" else "Percent of income") },
+            placeholder = { Text(if (mode == CategoryBudgetMode.FIXED) "e.g. 5000" else "e.g. 20") },
+            prefix = if (mode == CategoryBudgetMode.FIXED) ({ Text("₹ ", fontWeight = FontWeight.Bold) }) else null,
+            suffix = if (mode == CategoryBudgetMode.PERCENTAGE) ({ Text("%") }) else null,
             trailingIcon = {
                 if (value.isNotEmpty()) IconButton(onClick = onClear) {
                     Icon(Icons.Default.Clear, contentDescription = "Clear ${category.name} budget")
@@ -151,5 +194,12 @@ private fun BudgetInput(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(10.dp)
         )
+        if (mode == CategoryBudgetMode.PERCENTAGE) {
+            val percentage = value.toDoubleOrNull()?.takeIf { it.isFinite() && it in 0.0..100.0 }
+            val effective = percentage?.let { CategoryBudgetRules.effectiveAmount(CategoryBudgetConfiguration(mode, it), monthlyIncome) }
+            Text(effective?.let { "${percentage}% = ${formatCurrency(it)} of ${formatCurrency(monthlyIncome.coerceAtLeast(0.0))}" }
+                ?: "Enter a percentage from 0 to 100.", style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
     }
 }

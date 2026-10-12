@@ -27,12 +27,27 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.fintrace.app.data.model.TransactionStatus
 import com.fintrace.app.data.model.TransactionType
+import com.fintrace.app.ui.theme.IncomeGreen
 import com.fintrace.app.ui.theme.LocalFintraceColors
+
+/** Returns the user-facing secondary labels for a transaction row. */
+fun transactionRowSubtitle(
+    type: TransactionType,
+    categoryName: String?,
+    detail: String?,
+    incomeDetail: String?
+): List<String> =
+    if (type == TransactionType.INCOME) {
+        listOfNotNull("Income", incomeDetail)
+    } else {
+        listOfNotNull(categoryName, detail)
+    }
 
 @Composable
 fun TransactionRow(
@@ -48,7 +63,8 @@ fun TransactionRow(
     status: TransactionStatus = TransactionStatus.CONFIRMED,
     isRecurring: Boolean = false,
     currencyCode: String = "INR",
-    onClick: (() -> Unit)? = null
+    onClick: (() -> Unit)? = null,
+    incomeDetail: String? = null
 ) {
     val split = originalAmount != myShareAmount
     val signedAmount = transactionAmountDisplay(type, myShareAmount)
@@ -57,6 +73,7 @@ fun TransactionRow(
         TransactionType.EXPENSE -> MoneyTone.Expense
         TransactionType.TRANSFER -> MoneyTone.Neutral
     }
+    val subtitle = transactionRowSubtitle(type, categoryName, detail, incomeDetail)
     val subdued = status == TransactionStatus.DISMISSED
     val cardShape = RoundedCornerShape(20.dp)
     Card(
@@ -83,15 +100,25 @@ fun TransactionRow(
                 ),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                CategoryIcon(categoryIcon, categoryColorHex, size = 44.dp)
+                if (type == TransactionType.INCOME) {
+                    Box(
+                        modifier = Modifier.size(44.dp).clip(CircleShape).background(IncomeGreen.copy(alpha = 0.15f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text("+", color = IncomeGreen, style = MaterialTheme.typography.titleLarge)
+                    }
+                } else {
+                    CategoryIcon(categoryIcon, categoryColorHex, size = 44.dp)
+                }
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                     Text(title, style = MaterialTheme.typography.titleSmall,
                         color = if (subdued) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
                         maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        categoryName?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1) }
-                        detail?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                        subtitle.forEach { label ->
+                            Text(label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
                     }
                     if (isRecurring) RecurringBadge()
                     if (status == TransactionStatus.PENDING) StatusBadge(status = status)

@@ -6,6 +6,7 @@ import com.fintrace.app.data.local.entity.TransactionEntity
 import com.fintrace.app.data.local.relation.TransactionWithDetails
 import com.fintrace.app.data.model.TransactionType
 import com.fintrace.app.ui.transactions.TransactionListFilter
+import com.fintrace.app.ui.transactions.buildTransactionListPresentation
 import com.fintrace.app.ui.transactions.groupTransactionsByLocalDay
 import com.fintrace.app.ui.transactions.matchesTransactionFilter
 import com.fintrace.app.ui.transactions.summarizeExpensesByCurrency
@@ -13,6 +14,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 
@@ -26,6 +28,21 @@ class TransactionListPresentationTest {
             currency = currency, isRecurring = recurring),
         category = CategoryEntity(id = category, name = "Food", colorHex = "#00AA88"),
         paymentMode = PaymentModeEntity(id = mode, name = "UPI")
+    )
+
+    private fun rowAtTimestamp(id: Long, timestamp: Long, recurring: Boolean) = TransactionWithDetails(
+        transaction = TransactionEntity(
+            id = id,
+            description = "Row $id",
+            timestamp = timestamp,
+            originalAmount = 10.0,
+            myShareAmount = 10.0,
+            categoryId = 1,
+            paymentModeId = 1,
+            isRecurring = recurring
+        ),
+        category = CategoryEntity(id = 1, name = "Food", colorHex = "#00AA88"),
+        paymentMode = PaymentModeEntity(id = 1, name = "UPI")
     )
 
     @Test fun filtersCombineAndIncomeDoesNotMatchExpenseCategory() {
@@ -54,6 +71,52 @@ class TransactionListPresentationTest {
         assertEquals(-30.0, groups.first().netByCurrency["USD"]!!, 0.0)
         assertEquals(140.0, groups.last().netByCurrency["INR"]!!, 0.0)
         assertEquals(listOf(2L, 1L, 3L), groups.last().transactions.map { it.transaction.id })
+    }
+
+    @Test fun recurringSectionPrecedesOrdinaryLocalDateGroupsWithoutLosingRows() {
+        val dec31 = LocalDate.of(2025, 12, 31)
+        val jan1 = LocalDate.of(2026, 1, 1)
+        val rows = listOf(
+            row(1, dec31, 80.0),
+            row(2, dec31, 20.0, recurring = true),
+            row(3, jan1, 30.0),
+            row(4, jan1, 40.0, recurring = true)
+        )
+
+        val presentation = buildTransactionListPresentation(rows, zone)
+        val displayedIds = presentation.recurringTransactions.map { it.transaction.id } +
+            presentation.dayGroups.flatMap { group -> group.transactions.map { it.transaction.id } }
+
+        assertEquals(listOf(4L, 2L), presentation.recurringTransactions.map { it.transaction.id })
+        assertEquals(listOf(jan1, dec31), presentation.dayGroups.map { it.date })
+        assertEquals(listOf(listOf(3L), listOf(1L)), presentation.dayGroups.map { group -> group.transactions.map { it.transaction.id } })
+        assertEquals(rows.map { it.transaction.id }.sorted(), displayedIds.sorted())
+        assertEquals(displayedIds.size, displayedIds.toSet().size)
+    }
+
+    @Test fun recurringPresentationHandlesEmptyAndAllRecurringInputs() {
+        val empty = buildTransactionListPresentation(emptyList(), zone)
+        assertTrue(empty.recurringTransactions.isEmpty())
+        assertTrue(empty.dayGroups.isEmpty())
+
+        val allRecurring = buildTransactionListPresentation(listOf(
+            row(1, LocalDate.of(2025, 12, 31), 10.0, recurring = true),
+            row(2, LocalDate.of(2026, 1, 1), 20.0, recurring = true)
+        ), zone)
+        assertEquals(listOf(2L, 1L), allRecurring.recurringTransactions.map { it.transaction.id })
+        assertTrue(allRecurring.dayGroups.isEmpty())
+    }
+
+    @Test fun ordinaryGroupsUseTheRequestedLocalZoneAtYearBoundary() {
+        val justAfterUtcNewYear = Instant.parse("2026-01-01T00:30:00Z").toEpochMilli()
+        val zone = ZoneId.of("America/Los_Angeles")
+        val presentation = buildTransactionListPresentation(listOf(
+            rowAtTimestamp(1, justAfterUtcNewYear, recurring = false),
+            rowAtTimestamp(2, justAfterUtcNewYear, recurring = true)
+        ), zone)
+
+        assertEquals(listOf(2L), presentation.recurringTransactions.map { it.transaction.id })
+        assertEquals(listOf(LocalDate.of(2025, 12, 31)), presentation.dayGroups.map { it.date })
     }
 
     @Test fun expenseSummaryNeverCombinesCurrencies() {

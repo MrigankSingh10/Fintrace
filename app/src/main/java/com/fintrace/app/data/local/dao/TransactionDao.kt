@@ -189,6 +189,16 @@ interface TransactionDao {
     @Query("SELECT * FROM transactions WHERE status = 'PENDING' AND smsRawBody IS NOT NULL AND smsRawBody <> ''")
     suspend fun getPendingTransactionsWithSmsBody(): List<TransactionEntity>
 
+    @Query("""
+        DELETE FROM transactions
+        WHERE id = :transactionId
+          AND status = 'PENDING'
+          AND smsRawBody = :smsBody
+          AND smsRawBody IS NOT NULL
+          AND smsRawBody <> ''
+    """)
+    suspend fun deletePendingSmsIfBodyMatches(transactionId: Long, smsBody: String): Int
+
     @Query("SELECT * FROM transaction_splits WHERE transaction_id = :transactionId ORDER BY id")
     suspend fun getSplitsForTransaction(transactionId: Long): List<TransactionSplitEntity>
 

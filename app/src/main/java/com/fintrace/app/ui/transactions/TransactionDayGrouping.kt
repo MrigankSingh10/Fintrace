@@ -6,12 +6,29 @@ import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 
+internal data class TransactionListPresentation(
+    val recurringTransactions: List<TransactionWithDetails>,
+    val dayGroups: List<TransactionDayGroup>
+)
+
 internal data class TransactionDayGroup(
     val date: LocalDate,
     val transactions: List<TransactionWithDetails>,
     val netByCurrency: Map<String, Double>
 ) {
     val hasMixedCurrencies: Boolean get() = netByCurrency.keys.size > 1
+}
+
+internal fun buildTransactionListPresentation(
+    transactions: List<TransactionWithDetails>,
+    zone: ZoneId = ZoneId.systemDefault()
+): TransactionListPresentation {
+    val recurring = transactions.filter { it.transaction.isRecurring }.sortedForPresentation()
+    val ordinary = transactions.filterNot { it.transaction.isRecurring }
+    return TransactionListPresentation(
+        recurringTransactions = recurring,
+        dayGroups = groupTransactionsByLocalDay(ordinary, zone)
+    )
 }
 
 internal fun groupTransactionsByLocalDay(

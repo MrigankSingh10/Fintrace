@@ -16,10 +16,14 @@ import com.fintrace.app.data.local.relation.CategorySpendSummary
 import com.fintrace.app.data.local.relation.MonthlyFinancialSummary
 import com.fintrace.app.data.local.relation.TransactionWithDetails
 import com.fintrace.app.data.model.SalaryMode
+import com.fintrace.app.data.model.CategoryBudgetConfiguration
+import com.fintrace.app.data.model.CategoryBudgetMode
+import com.fintrace.app.data.model.CategoryBudgetRules
 import com.fintrace.app.data.model.SmsSourceIdentity
 import com.fintrace.app.data.model.TransactionStatus
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import java.time.YearMonth
 
@@ -52,10 +56,10 @@ class FinanceRepositoryImpl(
         categoryDao.getAllCategoriesFlow()
 
     override suspend fun addCategory(category: CategoryEntity): Long =
-        categoryDao.insertCategory(category)
+        categoryDao.insertCategory(category.withNormalizedBudget())
 
     override suspend fun updateCategory(category: CategoryEntity) =
-        categoryDao.updateCategory(category)
+        categoryDao.updateCategory(category.withNormalizedBudget())
 
     override suspend fun deleteCategory(category: CategoryEntity): CategoryDeleteResult =
         categoryDao.deleteCategoryAndReassign(category.id)
@@ -324,23 +328,24 @@ class FinanceRepositoryImpl(
         }
     }
 
-    override suspend fun updateCategoryBudget(categoryId: Long, budgetAmount: Double?) {
+    override suspend fun updateCategoryBudget(categoryId: Long, budget: CategoryBudgetConfiguration) {
         val category = categoryDao.getCategoryById(categoryId) ?: return
-        val normalized = budgetAmount?.takeIf { it > 0.0 }
-        val updated = category.copy(budgetAmount = normalized)
+        val normalized = CategoryBudgetRules.normalize(budget) ?: return
+        val updated = category.withBudgetConfiguration(normalized)
         categoryDao.updateCategory(updated)
     }
 
-    override suspend fun updateCategoryBudgets(budgets: List<Pair<Long, Double?>>) {
+    override suspend fun updateCategoryBudgets(budgets: List<Pair<Long, CategoryBudgetConfiguration>>) {
         if (budgets.isEmpty()) return
         val allCategories = categoryDao.getAllCategories()
         val idToCategory = allCategories.associateBy { it.id }
         val toUpdate = mutableListOf<CategoryEntity>()
-        for ((categoryId, budgetAmount) in budgets) {
+        for ((categoryId, budget) in budgets) {
             val category = idToCategory[categoryId] ?: continue
-            val normalized = budgetAmount?.takeIf { it > 0.0 }
-            if (category.budgetAmount != normalized) {
-                toUpdate.add(category.copy(budgetAmount = normalized))
+            val normalized = CategoryBudgetRules.normalize(budget) ?: continue
+            val updated = category.withBudgetConfiguration(normalized)
+            if (category.budgetAmount != updated.budgetAmount || category.budgetPercentage != updated.budgetPercentage) {
+                toUpdate.add(updated)
             }
         }
         if (toUpdate.isNotEmpty()) {
@@ -404,22 +409,33 @@ class FinanceRepositoryImpl(
         endTimestamp: Long
     ): Flow<List<CategorySpendSummary>> {
         val aggregatesFlow = transactionDao.getCategoryAggregatesInRangeFlow(startTimestamp, endTimestamp)
-        val confirmedIncomeFlow = transactionDao.getTotalConfirmedIncomeInRangeFlow(startTimestamp, endTimestamp)
         val categoriesFlow = categoryDao.getAllCategoriesFlow()
+        val budgetsFlow = monthlyBudgetDao.getAllBudgetsFlow()
+        val months = CategoryBreakdownIncomeRules.monthsIntersecting(startTimestamp, endTimestamp)
+        val monthIncomeFlows = months.map { month ->
+            transactionDao.getTotalConfirmedIncomeInRangeFlow(month.startTimestamp, month.endTimestamp)
+        }
+        val incomesByMonthFlow = if (monthIncomeFlows.isEmpty()) {
+            flowOf(emptyList())
+        } else {
+            combine(monthIncomeFlows) { incomes -> incomes.toList() }
+        }
 
-        // Extract monthYear from timestamp to get the month's income for the month
-        val dateFormat = java.text.SimpleDateFormat("yyyy-MM", java.util.Locale.getDefault())
-        val monthYear = dateFormat.format(java.util.Date(startTimestamp))
-        val budgetFlow = monthlyBudgetDao.getBudgetForMonthFlow(monthYear)
-
-        return combine(aggregatesFlow, categoriesFlow, budgetFlow, confirmedIncomeFlow) { aggregates, categories, budget, confirmedIncome ->
-            val monthlyIncome = resolveMonthlyIncome(confirmedIncome, budget)
+        return combine(aggregatesFlow, categoriesFlow, budgetsFlow, incomesByMonthFlow) { aggregates, categories, budgets, confirmedIncomes ->
+            val budgetAdjustments = budgets.associate { it.monthYear to it.salaryAmount }
+            val canonicalIncome = CategoryBreakdownIncomeRules.canonicalIncomeTotal(
+                months, confirmedIncomes, budgetAdjustments
+            )
+            val percentageBudgetIncome = CategoryBreakdownIncomeRules.percentageBudgetIncomeTotal(
+                months, confirmedIncomes, budgetAdjustments
+            )
+            val incomeDenominator = canonicalIncome.takeIf { it > 0.0 } ?: 0.0
             val aggregateMap = aggregates.associateBy { it.categoryId }
             val included = mutableSetOf<Long>()
             categories.forEach { cat ->
                 val agg = aggregateMap[cat.id]
                 val hasSpend = agg?.totalMyShare != null && agg.totalMyShare > 0.0
-                val hasBudget = cat.budgetAmount != null && cat.budgetAmount > 0.0
+                val hasBudget = cat.budgetAmount != null || cat.budgetPercentage != null
                 if (hasSpend || hasBudget) {
                     included.add(cat.id)
                 }
@@ -431,9 +447,15 @@ class FinanceRepositoryImpl(
                 if (cat.id !in included) return@forEach
                 val agg = aggregateMap[cat.id]
                 val spent = agg?.totalMyShare ?: 0.0
-                val budgetAmt = cat.budgetAmount?.takeIf { it > 0.0 }
-                val percentage = if (monthlyIncome > 0.0) {
-                    (spent / monthlyIncome) * 100.0
+                val configuration = CategoryBudgetRules.fromStored(cat.budgetAmount, cat.budgetPercentage)
+                val budgetIncome = if (configuration.mode == CategoryBudgetMode.PERCENTAGE) {
+                    percentageBudgetIncome
+                } else {
+                    incomeDenominator
+                }
+                val budgetAmt = CategoryBudgetRules.effectiveAmount(configuration, budgetIncome)
+                val percentage = if (incomeDenominator > 0.0) {
+                    (spent / incomeDenominator) * 100.0
                 } else 0.0
                 val budgetRemaining = budgetAmt?.let { it - spent }
                 val budgetUtilization = budgetAmt?.let { if (it > 0.0) spent / it else null }
@@ -450,7 +472,9 @@ class FinanceRepositoryImpl(
                         percentageOfTotal = percentage,
                         budgetAmount = budgetAmt,
                         budgetRemaining = budgetRemaining,
-                        budgetUtilization = budgetUtilization
+                        budgetUtilization = budgetUtilization,
+                        configuredBudgetAmount = cat.budgetAmount,
+                        budgetPercentage = cat.budgetPercentage
                     )
                 )
             }
@@ -463,5 +487,24 @@ class FinanceRepositoryImpl(
 
     private companion object {
         const val MAX_RECURRING_CATCH_UP_MONTHS = 1200
+    }
+
+    private fun CategoryEntity.withNormalizedBudget(): CategoryEntity {
+        val normalized = when {
+            budgetPercentage != null -> CategoryBudgetRules.normalize(
+                CategoryBudgetConfiguration(CategoryBudgetMode.PERCENTAGE, budgetPercentage)
+            )
+            budgetAmount != null -> CategoryBudgetRules.normalize(
+                CategoryBudgetConfiguration(CategoryBudgetMode.FIXED, budgetAmount)
+            )
+            else -> CategoryBudgetConfiguration(CategoryBudgetMode.NONE)
+        } ?: CategoryBudgetConfiguration(CategoryBudgetMode.NONE)
+        return withBudgetConfiguration(normalized)
+    }
+
+    private fun CategoryEntity.withBudgetConfiguration(configuration: CategoryBudgetConfiguration): CategoryEntity = when (configuration.mode) {
+        CategoryBudgetMode.NONE -> copy(budgetAmount = null, budgetPercentage = null)
+        CategoryBudgetMode.FIXED -> copy(budgetAmount = configuration.value, budgetPercentage = null)
+        CategoryBudgetMode.PERCENTAGE -> copy(budgetAmount = null, budgetPercentage = configuration.value)
     }
 }
