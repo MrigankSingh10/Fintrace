@@ -594,14 +594,7 @@ fun PendingSmsCard(
     // Derive proper merchant description if current description was a numeric amount or generic placeholder
     val merchantDisplay = remember(t.description, t.smsRawBody, liveParse) {
         val desc = t.description.trim()
-        val isGenericOrNumeric = desc.isBlank() ||
-                desc.matches(Regex("^(?:INR|RS\\.?|₹)?\\s*[0-9]+(?:,[0-9]+)*(?:\\.[0-9]+)?\\s*$", RegexOption.IGNORE_CASE)) ||
-                desc.matches(Regex("^[0-9\\.,\\s\\-_]+$")) ||
-                desc.equals("ICICI Bank Credit", ignoreCase = true) ||
-                desc.equals("HDFC Bank Credit", ignoreCase = true) ||
-                desc.equals("SBI Credit", ignoreCase = true) ||
-                desc.equals("Bank / Card Expense", ignoreCase = true) ||
-                desc.equals("Bank Credit / Dividend", ignoreCase = true)
+        val isGenericOrNumeric = com.fintrace.app.data.sms.SmsParser.isGenericDescription(desc)
 
         if (isGenericOrNumeric && !t.smsRawBody.isNullOrBlank()) {
             if (liveParse != null && liveParse.merchant.isNotBlank() && !liveParse.merchant.matches(Regex("^(?:INR|RS\\.?|₹)?\\s*[0-9]+(?:,[0-9]+)*(?:\\.[0-9]+)?\\s*$", RegexOption.IGNORE_CASE))) {

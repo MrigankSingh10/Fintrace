@@ -117,17 +117,10 @@ class SmsInboxViewModel(
         }
         viewModelScope.launch {
             pendingTransactions.collect { list ->
-                list.forEach { item ->
+                for (item in list) {
                     val t = item.transaction
                     val desc = t.description.trim()
-                    val isGenericOrNumeric = desc.isBlank() ||
-                            desc.matches(Regex("^(?:INR|RS\\.?|₹)?\\s*[0-9]+(?:,[0-9]+)*(?:\\.[0-9]+)?\\s*$", RegexOption.IGNORE_CASE)) ||
-                            desc.matches(Regex("^[0-9\\.,\\s\\-_]+$")) ||
-                            desc.equals("ICICI Bank Credit", ignoreCase = true) ||
-                            desc.equals("HDFC Bank Credit", ignoreCase = true) ||
-                            desc.equals("SBI Credit", ignoreCase = true) ||
-                            desc.equals("Bank / Card Expense", ignoreCase = true) ||
-                            desc.equals("Bank Credit / Dividend", ignoreCase = true)
+                    val isGenericOrNumeric = SmsParser.isGenericDescription(desc)
 
                     if (isGenericOrNumeric && !t.smsRawBody.isNullOrBlank()) {
                         val parsed = com.fintrace.app.data.sms.SmsParser.parse(t.smsRawBody, t.smsSender, t.timestamp)
@@ -135,8 +128,15 @@ class SmsInboxViewModel(
                             !parsed.merchant.matches(Regex("^(?:INR|RS\\.?|₹)?\\s*[0-9]+(?:,[0-9]+)*(?:\\.[0-9]+)?\\s*$", RegexOption.IGNORE_CASE)) &&
                             parsed.merchant != desc
                         ) {
-                            val updated = t.copy(description = parsed.merchant)
-                            repository.saveTransaction(updated, item.splits)
+                            val latest = repository.getTransactionById(t.id) ?: continue
+                            val latestTransaction = latest.transaction
+                            if (latestTransaction.status != TransactionStatus.PENDING ||
+                                !SmsParser.isGenericDescription(latestTransaction.description) ||
+                                latestTransaction.smsRawBody != t.smsRawBody
+                            ) continue
+
+                            val updated = latestTransaction.copy(description = parsed.merchant)
+                            repository.saveTransaction(updated, latest.splits)
                         }
                     }
                 }
@@ -196,15 +196,7 @@ class SmsInboxViewModel(
     }
 
     private fun isGenericDescription(desc: String): Boolean {
-        val trimmed = desc.trim()
-        if (trimmed.isBlank()) return true
-        if (trimmed.matches(Regex("^(?:INR|RS\\.?|₹)?\\s*[0-9]+(?:,[0-9]+)*(?:\\.[0-9]+)?\\s*$", RegexOption.IGNORE_CASE))) return true
-        if (trimmed.matches(Regex("^[0-9\\.,\\s\\-_]+$"))) return true
-        return trimmed.equals("ICICI Bank Credit", ignoreCase = true) ||
-                trimmed.equals("HDFC Bank Credit", ignoreCase = true) ||
-                trimmed.equals("SBI Credit", ignoreCase = true) ||
-                trimmed.equals("Bank / Card Expense", ignoreCase = true) ||
-                trimmed.equals("Bank Credit / Dividend", ignoreCase = true)
+        return SmsParser.isGenericDescription(desc)
     }
 
     fun onQuickCategoryChange(item: TransactionWithDetails, categoryId: Long) {

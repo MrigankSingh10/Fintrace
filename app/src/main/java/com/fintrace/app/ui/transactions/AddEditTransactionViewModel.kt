@@ -442,14 +442,7 @@ class AddEditTransactionViewModel(
 
     private fun descriptionForEditing(transaction: TransactionEntity): String {
         var description = transaction.description.trim()
-        val isGenericOrNumeric = description.isBlank() ||
-            description.matches(Regex("^(?:INR|RS\\.?|₹)?\\s*[0-9]+(?:,[0-9]+)*(?:\\.[0-9]+)?\\s*$", RegexOption.IGNORE_CASE)) ||
-            description.matches(Regex("^[0-9\\.,\\s\\-_]+$")) ||
-            description.equals("ICICI Bank Credit", ignoreCase = true) ||
-            description.equals("HDFC Bank Credit", ignoreCase = true) ||
-            description.equals("SBI Credit", ignoreCase = true) ||
-            description.equals("Bank / Card Expense", ignoreCase = true) ||
-            description.equals("Bank Credit / Dividend", ignoreCase = true)
+        val isGenericOrNumeric = SmsParser.isGenericDescription(description)
         val rawBody = transaction.smsRawBody
         if (isGenericOrNumeric && !rawBody.isNullOrBlank()) {
             val parsed = SmsParser.parse(rawBody, transaction.smsSender, transaction.timestamp)

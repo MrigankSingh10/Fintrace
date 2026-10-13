@@ -45,6 +45,67 @@ class SmsParserTest {
     }
 
     @Test
+    fun parsesIciciSpentUsingCardMerchantAfterDate() {
+        val sms = "INR 2,450.00 spent using your ICICI Bank Card XXXX on 18-Aug-26 on DISTRICT DINING. Avl Limit: INR 92,000.00. Not You? Call 18001234567 SMS BLOCK 1234 to 9212345678"
+
+        val parsed = SmsParser.parse(sms, "ICICIB")
+
+        assertNotNull("ICICI spent-using message should parse", parsed)
+        assertEquals(2450.0, parsed!!.amount, 0.001)
+        assertEquals("District Dining", parsed.merchant)
+        assertEquals(TransactionType.EXPENSE, parsed.transactionType)
+        assertEquals(ParseConfidence.FULL, parsed.parseConfidence)
+        assertEquals(PaymentModeType.CREDIT_CARD, parsed.paymentModeType)
+        assertEquals("Credit Card", parsed.paymentModeName)
+        assertNull(parsed.cardLastFour)
+        assertFalse(parsed.merchant.contains("18-Aug", ignoreCase = true))
+        assertFalse(parsed.merchant.contains("Avl", ignoreCase = true))
+        assertFalse(parsed.merchant.contains("Not You", ignoreCase = true))
+        assertFalse(parsed.merchant.contains("1800"))
+    }
+
+    @Test
+    fun parsesHdfcCardWithdrawalAsBankDebitAndBoundsAtmLocation() {
+        val sms = "Withdrawn INR 10,000.00 From HDFC Bank Card XXXX At TERMINAL 4, CENTRAL MARKET On 2025-11-23:09:41:07 Bal INR 31,500.00 Not You? Call 18007654321 SMS BLOCK CC 6392 to 7308080808"
+
+        val parsed = SmsParser.parse(sms, "HDFCBK")
+
+        assertNotNull("HDFC withdrawal message should parse", parsed)
+        assertEquals(10000.0, parsed!!.amount, 0.001)
+        assertEquals("Terminal 4, Central Market", parsed.merchant)
+        assertEquals(TransactionType.EXPENSE, parsed.transactionType)
+        assertEquals(ParseConfidence.FULL, parsed.parseConfidence)
+        assertEquals(PaymentModeType.BANK_DEBIT, parsed.paymentModeType)
+        assertEquals("DEBIT", parsed.paymentModeName)
+        assertNull(parsed.cardLastFour)
+        assertFalse(parsed.merchant.contains("2025"))
+        assertFalse(parsed.merchant.contains("Bal", ignoreCase = true))
+        assertFalse(parsed.merchant.contains("Not You", ignoreCase = true))
+        assertFalse(parsed.merchant.contains("1800"))
+    }
+
+    @Test
+    fun explicitCreditCardWithdrawalRemainsCreditCard() {
+        val sms = "Withdrawn INR 2,000.00 From HDFC Bank Credit Card XX7788 At ATM CENTRAL On 2025-11-23:09:41:07"
+
+        val parsed = SmsParser.parse(sms, "HDFCBK")
+
+        assertNotNull(parsed)
+        assertEquals(PaymentModeType.CREDIT_CARD, parsed!!.paymentModeType)
+        assertEquals("Credit Card", parsed.paymentModeName)
+    }
+
+    @Test
+    fun genericParserFallbacksAreRecognizedButCustomDescriptionsArePreserved() {
+        listOf("ICICI Bank Spend", "HDFC Bank Spend", "SBI Spend").forEach {
+            assertTrue(SmsParser.isGenericDescription(it))
+        }
+        assertTrue(SmsParser.isGenericDescription(" INR 1,200.00 "))
+        assertFalse(SmsParser.isGenericDescription("District Dining"))
+        assertFalse(SmsParser.isGenericDescription("My custom HDFC Bank Spend label"))
+    }
+
+    @Test
     fun testIciciApayCreditCardSms() {
         val sms = "Alert: Spent INR 1,299.00 on your Amazon Pay ICICI Bank Credit Card ending 3344 at Amazon on 18-AUG-2026."
         val parsed = SmsParser.parse(sms, "ICICIB")
