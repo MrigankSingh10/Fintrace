@@ -163,6 +163,16 @@ object SmsParser {
 
     // High-priority merchant extraction patterns (ordered from most specific to general)
     private val MERCHANT_PATTERNS = listOf(
+        // ICICI: "spent using ... Card XX1234 on 18-Aug-26 on DISTRICT DINING"
+        Pattern.compile(
+            "\\bspent\\s+using\\b[\\s\\S]{0,180}?\\bcard\\b[\\s\\S]{0,48}?\\bon\\s+[0-9]{1,2}[-/][A-Za-z0-9/-]+\\s+on\\s+([A-Za-z0-9][A-Za-z0-9.,'&()/+_ -]*?)(?=\\s+(?:avl\\b|available\\b|bal\\b|not\\s+you\\b|call\\b|sms\\s+block\\b)|[.;]|$)",
+            Pattern.CASE_INSENSITIVE
+        ),
+        // HDFC ATM: "Withdrawn ... From ... Card ... At <location> On 2025-11-23:09:41:07 Bal..."
+        Pattern.compile(
+            "\\bwithdrawn\\b[\\s\\S]{0,180}?\\bcard\\b[\\s\\S]{0,48}?\\bat\\s+([A-Za-z0-9][A-Za-z0-9.,'&()/+_ -]*?)\\s+on\\s+(?:[0-9]{4}-[0-9]{2}-[0-9]{2}|[0-9]{1,2}[-/][A-Za-z0-9/-]+)(?=\\b|:)",
+            Pattern.CASE_INSENSITIVE
+        ),
         // "; Zepto credited." or "; Umed Singh Goud credited. UPI:..."
         Pattern.compile("(?:;|\\.|\\b)\\s*([A-Za-z0-9\\.\\-_@&/ ]+?)\\s+credited(?:\\.|;|\$|\\s+upi|\\s+ref|\\s+call)", Pattern.CASE_INSENSITIVE),
         // "at SWIGGY on 28-Aug" or "at AMAZON INDIA." or "AT HOLAFLY WAS SUCCESSFUL"
@@ -188,6 +198,21 @@ object SmsParser {
         "your card", "credit card", "debit card", "bank", "atm", "purchase of", "payment of",
         "for inr", "for rs", "by inr", "by rs", "avl lmt", "avl bal", "ref no", "upi ref"
     )
+
+    private val GENERIC_SMS_DESCRIPTIONS = setOf(
+        "ICICI Bank Credit", "HDFC Bank Credit", "SBI Credit",
+        "ICICI Bank Spend", "HDFC Bank Spend", "SBI Spend",
+        "Axis Bank Spend", "Kotak Spend",
+        "Bank / Card Expense", "Bank Credit / Dividend"
+    )
+
+    /** True when an SMS transaction description is a parser placeholder rather than a user label. */
+    fun isGenericDescription(description: String): Boolean {
+        val trimmed = description.trim()
+        if (trimmed.isBlank()) return true
+        if (NUMERIC_OR_AMOUNT_REGEX.matches(trimmed) || trimmed.matches(Regex("^[0-9\\.,\\s\\-_]+$"))) return true
+        return GENERIC_SMS_DESCRIPTIONS.any { trimmed.equals(it, ignoreCase = true) }
+    }
 
     // Card pattern (e.g. Card ending 1234, Card XX1234, AMEX card ** 81000 with 4-6 digit tail)
     private val CARD_PATTERN = Pattern.compile(
@@ -351,6 +376,8 @@ object SmsParser {
     private fun detectPaymentMode(body: String): Pair<PaymentModeType, String> {
         val lower = body.lowercase()
 
+        val isExplicitCreditCard = lower.contains("credit card") || lower.contains("creditcard")
+        val isWithdrawal = lower.contains("withdrawn") || lower.contains("withdrawal")
         val isCreditCard = lower.contains("credit card") || lower.contains("creditcard") ||
                 (lower.contains("card") && !lower.contains("debit card") && !lower.contains("account") && !lower.contains("a/c"))
 
@@ -358,7 +385,7 @@ object SmsParser {
                 lower.contains("a/c") || lower.contains("acct") || lower.contains("debit card") ||
                 lower.contains("debited from a/c")
 
-        if (isCreditCard && !isBankAccount) {
+        if (isCreditCard && !isBankAccount && (!isWithdrawal || isExplicitCreditCard)) {
             return PaymentModeType.CREDIT_CARD to "Credit Card"
         }
 
