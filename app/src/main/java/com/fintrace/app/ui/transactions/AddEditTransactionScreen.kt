@@ -4,6 +4,7 @@ import android.app.DatePickerDialog
 import android.content.res.Configuration
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -48,6 +49,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -453,7 +455,20 @@ private fun AddEditTransactionForm(
                     )
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                         listOf(2 to "Half", 3 to "Thirds", 4 to "Quarters").forEach { (divisor, label) ->
-                            OutlinedButton(onClick = { onQuickSplit(divisor) }, enabled = enabled, modifier = Modifier.weight(1f)) { Text(label) }
+                            OutlinedButton(
+                                onClick = { onQuickSplit(divisor) },
+                                enabled = enabled,
+                                modifier = Modifier.weight(1f),
+                                colors = ButtonDefaults.outlinedButtonColors(
+                                    contentColor = MaterialTheme.colorScheme.primary,
+                                    disabledContentColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                                ),
+                                border = BorderStroke(
+                                    1.dp,
+                                    if (enabled) MaterialTheme.colorScheme.primary.copy(alpha = 0.65f)
+                                    else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f)
+                                )
+                            ) { Text(label) }
                         }
                     }
                     state.splitParticipants.forEachIndexed { index, person ->
@@ -501,7 +516,25 @@ private fun AddEditTransactionForm(
                     Text("Repeat monthly", style = MaterialTheme.typography.titleSmall)
                     Text("Keep this transaction recurring each month", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                Switch(checked = state.isRecurring, onCheckedChange = onRecurringChange, enabled = enabled)
+                Switch(
+                    checked = state.isRecurring,
+                    onCheckedChange = onRecurringChange,
+                    enabled = enabled,
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
+                        checkedTrackColor = MaterialTheme.colorScheme.primary,
+                        checkedBorderColor = MaterialTheme.colorScheme.primary,
+                        uncheckedThumbColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                        uncheckedTrackColor = MaterialTheme.colorScheme.surfaceVariant,
+                        uncheckedBorderColor = MaterialTheme.colorScheme.outline,
+                        disabledCheckedThumbColor = MaterialTheme.colorScheme.surface,
+                        disabledCheckedTrackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.38f),
+                        disabledCheckedBorderColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                        disabledUncheckedThumbColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f),
+                        disabledUncheckedTrackColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f),
+                        disabledUncheckedBorderColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f)
+                    )
+                )
             }
         }
         Spacer(Modifier.height(8.dp))

@@ -120,7 +120,7 @@ fun TransactionListScreen(
                 if (!smsState.pendingLoaded && segment == TransactionSegment.PENDING) LinearProgressIndicator(Modifier.fillMaxWidth())
             }
             if (displayRows.isEmpty()) {
-                Column(Modifier.fillMaxSize().padding(28.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
+                Column(Modifier.fillMaxSize().padding(start = 28.dp, top = 28.dp, end = 28.dp, bottom = 100.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
                     val title = when {
                         segment == TransactionSegment.PENDING && !smsState.pendingLoaded -> "Loading pending review…"
                         hasActiveFilters && sourceCount > 0 -> "No matches"
@@ -139,7 +139,7 @@ fun TransactionListScreen(
             } else when (segment) {
                 TransactionSegment.ALL -> {
                     val presentation = remember(displayRows) { buildTransactionListPresentation(displayRows) }
-                    LazyColumn(contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    LazyColumn(contentPadding = PaddingValues(start = 16.dp, top = 8.dp, end = 16.dp, bottom = 96.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         if (presentation.recurringTransactions.isNotEmpty()) {
                             stickyHeader(key = "recurring-header") {
                                 Surface(color = MaterialTheme.colorScheme.background) {
@@ -166,7 +166,7 @@ fun TransactionListScreen(
                         }
                     }
                 }
-                TransactionSegment.PENDING -> LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                TransactionSegment.PENDING -> LazyColumn(contentPadding = PaddingValues(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 96.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     items(displayRows, key = { it.transaction.id }) { item ->
                         PendingSmsCard(item, categories, cardMappings, dateFormatter,
                             onConfirm = { smsInboxViewModel?.onConfirmTransaction(item) }, onSplitAndEdit = { onNavigateToEditTransaction(item.transaction.id) },
@@ -175,7 +175,7 @@ fun TransactionListScreen(
                             onSelectPaymentMode = { id -> smsInboxViewModel?.onQuickPaymentModeChange(item, id) }, paymentModes = paymentModes)
                     }
                 }
-                TransactionSegment.DISMISSED -> LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                TransactionSegment.DISMISSED -> LazyColumn(contentPadding = PaddingValues(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 96.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     items(displayRows, key = { it.transaction.id }) { item ->
                         TransactionRow(title = item.transaction.description, myShareAmount = item.transaction.myShareAmount, originalAmount = item.transaction.originalAmount, categoryName = item.category?.name, categoryIcon = item.category?.iconName, categoryColorHex = item.category?.colorHex, type = item.transaction.type, status = com.fintrace.app.data.model.TransactionStatus.DISMISSED, isRecurring = item.transaction.isRecurring, currencyCode = item.transaction.currency)
                         TextButton(onClick = { smsInboxViewModel?.onRestoreTransaction(item) }) { Text("Restore for review") }

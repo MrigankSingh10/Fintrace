@@ -136,6 +136,7 @@ fun MainScreen(
     val currentRoute = navBackStackEntry?.destination?.route
 
     val isMainTab = currentRoute in Screen.primaryTabs.map { it.route }
+    val showSharedAddFab = shouldShowSharedAddTransactionFab(currentRoute)
     val pendingSmsCount by app.repository.getPendingCount().collectAsState(initial = 0)
     val incomeModelReady by app.incomeModelReady.collectAsState()
     var sharedMonth by rememberSaveable(
@@ -208,7 +209,7 @@ fun MainScreen(
             }
         },
         floatingActionButton = {
-            if (isMainTab) {
+            if (showSharedAddFab) {
                 ExtendedFloatingActionButton(
                     onClick = { navController.navigate(Screen.AddTransaction.createRoute(0L)) },
                     icon = { Icon(Icons.Default.Add, contentDescription = null) },
@@ -218,7 +219,7 @@ fun MainScreen(
                 )
             }
         },
-        floatingActionButtonPosition = FabPosition.Center,
+        floatingActionButtonPosition = FabPosition.End,
         bottomBar = {
             if (isMainTab) {
                 AppBottomNavBar(
@@ -261,3 +262,6 @@ fun MainScreen(
 }
 
 private const val STARTUP_SMS_PROMPT_HANDLED_KEY = "startup_prompt_handled"
+
+internal fun shouldShowSharedAddTransactionFab(route: String?): Boolean =
+    route == Screen.Dashboard.route || route == Screen.Transactions.route
