@@ -201,9 +201,9 @@ fun DashboardScreen(
                     }
                 )
             }
-        }
 
-        Spacer(Modifier.height(88.dp)) // Permanent safe band for the shared Add button.
+            Spacer(Modifier.height(88.dp)) // Lets the final content scroll clear of the shared Add button.
+        }
     }
 
     incomeDialogState?.let { dialog ->

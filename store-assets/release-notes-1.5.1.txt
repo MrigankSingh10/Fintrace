@@ -1,0 +1,4 @@
+Fintrace 1.5.1
+
+- Fixed the Home screen layout so content is no longer hidden behind a permanent Add-button container.
+- The Add button now floats cleanly while the final dashboard content can scroll fully into view.
