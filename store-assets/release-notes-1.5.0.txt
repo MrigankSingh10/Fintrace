@@ -1,0 +1,7 @@
+Fintrace 1.5.0
+
+• Scan only new SMS alerts, rescan the last 30 days or year, or choose a custom start date.
+• Dismissed alerts remain dismissed during rescans.
+• Review actions now use one replace-in-place Undo prompt.
+• Refreshed the Home dashboard and month controls for better use of screen space.
+• Improved transaction, analytics, and SMS parsing details.

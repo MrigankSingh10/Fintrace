@@ -8,8 +8,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -27,11 +25,13 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.MarkEmailUnread
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -71,7 +71,7 @@ import com.fintrace.app.ui.components.CategoryIcon
 import com.fintrace.app.ui.components.EmptyState
 import com.fintrace.app.ui.components.MoneyTone
 import com.fintrace.app.ui.components.MoneyText
-import com.fintrace.app.ui.components.MonthSwitcher
+import com.fintrace.app.ui.components.HomeMonthSwitcher
 import com.fintrace.app.ui.components.RecurringBadge
 import com.fintrace.app.ui.components.StatPill
 import com.fintrace.app.ui.components.TransactionRow
@@ -116,7 +116,8 @@ fun DashboardScreen(
     onNavigateToSmsReview: () -> Unit = {},
     onScanSmsInbox: (Context) -> Unit = {},
     onEnableSmsImport: () -> Unit = onNavigateToSmsReview,
-    onNavigateToAnalytics: () -> Unit = onNavigateToTransactions
+    onNavigateToAnalytics: () -> Unit = onNavigateToTransactions,
+    endOfMonthControls: @Composable () -> Unit = {}
 ) {
     val period by viewModel.selectedPeriod.collectAsState()
     val dashboardState by viewModel.monthUiState.collectAsState()
@@ -145,62 +146,64 @@ fun DashboardScreen(
     val month = sharedMonth ?: runCatching { YearMonth.parse(period.monthYearKey) }.getOrElse { YearMonth.now() }
     val monthData = dashboardStateForMonth(dashboardState, month)
 
-    Column(
-        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())
-            .padding(horizontal = 16.dp, vertical = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(18.dp)
-    ) {
-        MonthSwitcher(
-            month = month,
-            onMonthSelected = onSharedMonthSelected ?: viewModel::onMonthSelected
-        )
+    Column(Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 12.dp)) {
+        Column(
+            modifier = Modifier.weight(1f).verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            HomeMonthSwitcher(
+                month = month,
+                onMonthSelected = onSharedMonthSelected ?: viewModel::onMonthSelected,
+                trailingContent = endOfMonthControls
+            )
 
-        if (pendingCount > 0) {
-            PendingReviewBanner(count = pendingCount, onClick = onNavigateToSmsReview)
-        }
-
-        if (monthData == null) {
-            DashboardLoadingCard(month)
-        } else {
-            val summary = requireNotNull(monthData.summary)
-            val recentTransactions = latestDashboardTransactions(monthData.confirmedTransactions)
-            val topCategories = monthData.categories
-                .sortedWith(compareByDescending<CategorySpendSummary> { it.totalMyShareSpent }.thenBy { it.categoryId })
-                .take(4)
-
-            DashboardHero(summary = summary, onAdjustIncome = { viewModel.onOpenIncomeDialog(month) })
-
-            if (topCategories.isNotEmpty()) {
-                CategoryGlanceSection(
-                    categories = topCategories,
-                    totalSpent = summary.totalMyShareSpent,
-                    onEditBudget = viewModel::onEditCategoryBudget,
-                    onOpenBulkBudgets = viewModel::onOpenBulkBudgets,
-                    onSeeAll = onNavigateToAnalytics,
-                    onManageCategories = onNavigateToCategories,
-                    onManagePaymentModes = onNavigateToPaymentModes
-                )
-            } else {
-                BudgetAccessCard(
-                    onOpenBudgets = viewModel::onOpenBulkBudgets,
-                    onManageCategories = onNavigateToCategories,
-                    onManagePaymentModes = onNavigateToPaymentModes
-                )
+            if (pendingCount > 0) {
+                PendingReviewBanner(count = pendingCount, onClick = onNavigateToSmsReview)
             }
 
-            RecentTransactionsSection(
-                transactions = recentTransactions,
-                onViewAll = onNavigateToTransactions,
-                onTransactionClick = onNavigateToTransactionDetail,
-                onAdd = onNavigateToAddTransaction,
-                smsActionLabel = if (hasSmsPermission) "Scan messages" else "Enable SMS import",
-                onReviewSms = {
-                    if (hasSmsPermission) onScanSmsInbox(context) else onEnableSmsImport()
+            if (monthData == null) {
+                DashboardLoadingCard(month)
+            } else {
+                val summary = requireNotNull(monthData.summary)
+                val recentTransactions = latestDashboardTransactions(monthData.confirmedTransactions)
+                val topCategories = monthData.categories
+                    .sortedWith(compareByDescending<CategorySpendSummary> { it.totalMyShareSpent }.thenBy { it.categoryId })
+                    .take(4)
+
+                DashboardHero(summary = summary, onAdjustIncome = { viewModel.onOpenIncomeDialog(month) })
+
+                if (topCategories.isNotEmpty()) {
+                    CategoryGlanceSection(
+                        categories = topCategories,
+                        totalSpent = summary.totalMyShareSpent,
+                        onEditBudget = viewModel::onEditCategoryBudget,
+                        onOpenBulkBudgets = viewModel::onOpenBulkBudgets,
+                        onSeeAll = onNavigateToAnalytics,
+                        onManageCategories = onNavigateToCategories,
+                        onManagePaymentModes = onNavigateToPaymentModes
+                    )
+                } else {
+                    BudgetAccessCard(
+                        onOpenBudgets = viewModel::onOpenBulkBudgets,
+                        onManageCategories = onNavigateToCategories,
+                        onManagePaymentModes = onNavigateToPaymentModes
+                    )
                 }
-            )
+
+                RecentTransactionsSection(
+                    transactions = recentTransactions,
+                    onViewAll = onNavigateToTransactions,
+                    onTransactionClick = onNavigateToTransactionDetail,
+                    onAdd = onNavigateToAddTransaction,
+                    smsActionLabel = if (hasSmsPermission) "Scan messages" else "Enable SMS import",
+                    onReviewSms = {
+                        if (hasSmsPermission) onScanSmsInbox(context) else onEnableSmsImport()
+                    }
+                )
+            }
         }
 
-        Spacer(Modifier.height(88.dp)) // Keep content clear of the shared Add button.
+        Spacer(Modifier.height(88.dp)) // Permanent safe band for the shared Add button.
     }
 
     incomeDialogState?.let { dialog ->
@@ -314,13 +317,14 @@ private fun PendingReviewBanner(count: Int, onClick: () -> Unit) {
                 Text("Transactions to review", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
                 Text("$count pending ${if (count == 1) "transaction" else "transactions"}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            Text("Review", style = MaterialTheme.typography.labelLarge, color = semantic.pending)
+            TextButton(onClick = onClick, modifier = Modifier.heightIn(min = 48.dp)) {
+                Text("Review", style = MaterialTheme.typography.labelLarge, color = semantic.pending, maxLines = 1)
+            }
         }
     }
 }
 
 @Composable
-@OptIn(ExperimentalLayoutApi::class)
 private fun CategoryGlanceSection(
     categories: List<CategorySpendSummary>,
     totalSpent: Double,
@@ -394,9 +398,13 @@ private fun CategoryGlanceSection(
                         contentColor = MaterialTheme.colorScheme.onPrimary
                     )
                 ) { Text("Edit category budgets") }
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.align(Alignment.End)) {
-                    TextButton(onClick = onManageCategories) { Text("Manage categories") }
-                    TextButton(onClick = onManagePaymentModes) { Text("Payment modes") }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextButton(onClick = onManageCategories, modifier = Modifier.weight(1f)) {
+                        Text("Manage categories", textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                    }
+                    TextButton(onClick = onManagePaymentModes, modifier = Modifier.weight(1f)) {
+                        Text("Payment modes", textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                    }
                 }
             }
         }
@@ -410,18 +418,22 @@ private fun BudgetAccessCard(onOpenBudgets: () -> Unit, onManageCategories: () -
         Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("Your categories", style = MaterialTheme.typography.titleMedium)
             Text("Set category budgets now; your spending breakdown will appear as confirmed expenses are added.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(
-                    onClick = onOpenBudgets,
-                    modifier = Modifier.weight(1f),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.primary,
-                        contentColor = MaterialTheme.colorScheme.onPrimary
-                    )
-                ) { Text("Edit budgets") }
-                TextButton(onClick = onManageCategories, modifier = Modifier.weight(1f)) { Text("Categories") }
+            Button(
+                onClick = onOpenBudgets,
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary
+                )
+            ) { Text("Edit category budgets") }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextButton(onClick = onManageCategories, modifier = Modifier.weight(1f)) {
+                    Text("Manage categories", textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                }
+                TextButton(onClick = onManagePaymentModes, modifier = Modifier.weight(1f)) {
+                    Text("Payment modes", textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                }
             }
-            TextButton(onClick = onManagePaymentModes, modifier = Modifier.align(Alignment.End)) { Text("Payment modes") }
         }
     }
 }
@@ -500,7 +512,9 @@ private fun DashboardNegativePreview() = DashboardPreview(dark = true, left = -4
 private fun DashboardPreview(dark: Boolean, left: Double, empty: Boolean, pending: Int) {
     FinanceTrackerTheme(darkTheme = dark) {
         Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.background).padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            MonthSwitcher(YearMonth.of(2026, 6), {})
+            HomeMonthSwitcher(YearMonth.of(2026, 6), {}, trailingContent = {
+                IconButton(onClick = {}) { Icon(Icons.Default.MoreVert, contentDescription = "More options") }
+            })
             DashboardHero(
                 summary = MonthlyFinancialSummary("2026-06", 95000.0, 95000.0 - left, 95000.0 - left, left, manualAdjustment = 5000.0),
                 onAdjustIncome = {}
@@ -526,7 +540,9 @@ private fun DashboardPreview(dark: Boolean, left: Double, empty: Boolean, pendin
 private fun DashboardPhonePreview() {
     FinanceTrackerTheme {
         Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.background).padding(12.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            MonthSwitcher(YearMonth.of(2026, 6), {})
+            HomeMonthSwitcher(YearMonth.of(2026, 6), {}, trailingContent = {
+                IconButton(onClick = {}) { Icon(Icons.Default.MoreVert, contentDescription = "More options") }
+            })
             CategoryGlanceSection(
                 categories = previewCategories,
                 totalSpent = 22519.5,

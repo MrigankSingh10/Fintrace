@@ -6,7 +6,7 @@ Fintrace is an offline personal-finance Android application maintained by **Mrig
 
 ## Data the app accesses and why
 
-If you grant SMS permissions, Fintrace reads the sender/address, message body, and message timestamp from SMS messages. When you choose to scan your inbox, Fintrace scans messages from the preceding 30 days. While the app is closed, Android can deliver newly received SMS messages to Fintrace for parsing. These features support detecting possible financial transaction alerts and creating records for your review. The parser may match financial transaction messages from different senders; it does not require that a sender be a bank.
+If you grant SMS permissions, Fintrace reads the sender/address, message body, and message timestamp from SMS messages. When you choose to scan your inbox, Fintrace can scan new messages since its last successful scan, the preceding 30 days or year, or messages from a custom start date you select through the current time. While the app is closed, Android can deliver newly received SMS messages to Fintrace for parsing. These features support detecting possible financial transaction alerts and creating records for your review. The parser may match financial transaction messages from different senders; it does not require that a sender be a bank.
 
 When SMS permissions are not already granted, Fintrace shows an in-app disclosure before Android's permission dialog on the first eligible launch. Your choice to handle or defer that startup prompt is stored as a local preference so the app does not repeatedly interrupt you. You can return to the SMS review area later to grant access.
 

@@ -1,5 +1,6 @@
 package com.fintrace.app.ui.sms
 
+import android.app.DatePickerDialog
 import android.Manifest
 import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -64,6 +65,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -94,9 +96,13 @@ import com.fintrace.app.ui.theme.IncomeGreen
 import com.fintrace.app.ui.theme.PrimaryBlue
 import com.fintrace.app.ui.theme.SplitBadgeBg
 import com.fintrace.app.ui.theme.SplitBadgeText
+import com.fintrace.app.data.sms.SmsScanRangeRules
+import java.util.Calendar
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+
+private enum class SmsInboxScanMode { INCREMENTAL, LAST_30_DAYS, LAST_YEAR, CUSTOM }
 
 @Composable
 fun SmsInboxScreen(
@@ -113,6 +119,7 @@ fun SmsInboxScreen(
     val paymentModes by viewModel.paymentModes.collectAsState()
     val cardMappings by viewModel.cardMappings.collectAsState()
     val uiState by viewModel.uiState.collectAsState()
+    val latestUndoableAction by viewModel.undoableActions.collectAsState()
     val displayedTransactions = if (uiState.showingDismissed) dismissedTransactions else if (uiState.pendingLoaded) pendingTransactions else emptyList()
 
     var cardToMap by remember { mutableStateOf<Pair<String, TransactionWithDetails>?>(null) }
@@ -120,14 +127,55 @@ fun SmsInboxScreen(
     var confirmAllSnapshot by remember { mutableStateOf<List<TransactionWithDetails>>(emptyList()) }
 
     var hasSmsPermission by remember(context) { mutableStateOf(hasSmsImportPermissions(context)) }
+    var pendingScanModeName by rememberSaveable { mutableStateOf<String?>(null) }
+    var pendingCustomStart by rememberSaveable { mutableStateOf<Long?>(null) }
+    var showScanPeriodChooser by rememberSaveable { mutableStateOf(false) }
+    var permissionGrantHandled by rememberSaveable { mutableStateOf(hasSmsPermission) }
+
+    fun executeScan(mode: SmsInboxScanMode, customStart: Long? = null) {
+        when (mode) {
+            SmsInboxScanMode.INCREMENTAL -> viewModel.scanInbox(context.applicationContext)
+            SmsInboxScanMode.LAST_30_DAYS -> viewModel.rescanLastDays(context.applicationContext)
+            SmsInboxScanMode.LAST_YEAR -> viewModel.rescanLastYear(context.applicationContext)
+            SmsInboxScanMode.CUSTOM -> customStart?.let { viewModel.rescanFrom(context.applicationContext, it) }
+        }
+    }
+
+    fun consumePermissionGrant() {
+        if (permissionGrantHandled) return
+        permissionGrantHandled = true
+        val mode = pendingScanModeName?.let { runCatching { SmsInboxScanMode.valueOf(it) }.getOrNull() }
+            ?: SmsInboxScanMode.INCREMENTAL
+        val customStart = pendingCustomStart
+        pendingScanModeName = null
+        pendingCustomStart = null
+        executeScan(mode, customStart)
+    }
+
+    fun requestScan(mode: SmsInboxScanMode, customStart: Long? = null) {
+        if (hasSmsPermission) {
+            executeScan(mode, customStart)
+        } else {
+            pendingScanModeName = mode.name
+            pendingCustomStart = customStart
+            permissionGrantHandled = false
+            viewModel.onShowPermissionRationale()
+        }
+    }
+
+    LaunchedEffect(context) {
+        viewModel.refreshScanCheckpoint(context.applicationContext)
+    }
 
     DisposableEffect(lifecycleOwner, context) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
-                val wasGranted = hasSmsPermission
-                hasSmsPermission = hasSmsImportPermissions(context)
-                if (!wasGranted && hasSmsPermission) {
-                    viewModel.scanInbox(context.applicationContext)
+                val isGranted = hasSmsImportPermissions(context)
+                hasSmsPermission = isGranted
+                if (isGranted) {
+                    consumePermissionGrant()
+                } else {
+                    permissionGrantHandled = false
                 }
             }
         }
@@ -141,7 +189,11 @@ fun SmsInboxScreen(
         // Permission results may omit keys; use the platform's actual current grant state.
         hasSmsPermission = hasSmsImportPermissions(context)
         if (hasSmsPermission) {
-            viewModel.scanInbox(context.applicationContext)
+            consumePermissionGrant()
+        } else {
+            permissionGrantHandled = false
+            pendingScanModeName = null
+            pendingCustomStart = null
         }
     }
 
@@ -150,11 +202,8 @@ fun SmsInboxScreen(
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background
     ) { paddingValues ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(paddingValues)
-        ) {
+      Box(modifier = Modifier.fillMaxSize().padding(paddingValues)) {
+        Column(modifier = Modifier.fillMaxSize()) {
             Row(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically
@@ -165,6 +214,12 @@ fun SmsInboxScreen(
                 Text("SMS Review", style = MaterialTheme.typography.titleLarge)
             }
 
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+            ) {
+              Column(modifier = Modifier.fillMaxSize()) {
             // Permission Banner if missing
             if (!hasSmsPermission) {
                 Card(
@@ -199,7 +254,11 @@ fun SmsInboxScreen(
                         }
                         Spacer(modifier = Modifier.width(8.dp))
                         Button(
-                            onClick = { viewModel.onShowPermissionRationale() },
+                            onClick = {
+                                pendingScanModeName = null
+                                pendingCustomStart = null
+                                viewModel.onShowPermissionRationale()
+                            },
                             colors = ButtonDefaults.buttonColors(containerColor = PrimaryBlue),
                             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
                             shape = RoundedCornerShape(8.dp)
@@ -217,16 +276,6 @@ fun SmsInboxScreen(
                         Text(error, Modifier.weight(1f), color = MaterialTheme.colorScheme.onErrorContainer)
                         TextButton(onClick = { viewModel.clearActionError() }) { Text("Dismiss") }
                     }
-                }
-            }
-            viewModel.undoableActions.collectAsState().value.forEach { action ->
-                Card(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 3.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)) {
-                    PendingActionFeedbackContent(
-                        action = action,
-                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                        onUndo = { viewModel.undoPendingAction(action.transactionId) },
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
-                    )
                 }
             }
             uiState.statusMessage?.let { msg ->
@@ -302,19 +351,26 @@ fun SmsInboxScreen(
                     CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.5.dp, color = MaterialTheme.colorScheme.primary)
                 } else {
                     OutlinedButton(
-                        onClick = {
-                            if (hasSmsPermission) {
-                                viewModel.scanInbox(context)
-                            } else {
-                                viewModel.onShowPermissionRationale()
-                            }
-                        },
+                        onClick = { requestScan(SmsInboxScanMode.INCREMENTAL) },
                         contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
                         shape = RoundedCornerShape(8.dp)
                     ) {
                         Icon(imageVector = Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(14.dp))
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text("Scan SMS", style = MaterialTheme.typography.labelSmall)
+                        Text(
+                            if (uiState.hasScanCheckpoint) "Scan New SMS" else "Scan SMS",
+                            style = MaterialTheme.typography.labelSmall
+                        )
+                    }
+                }
+
+                if (!uiState.isScanning) {
+                    OutlinedButton(
+                        onClick = { showScanPeriodChooser = true },
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Text("Choose Scan Period", style = MaterialTheme.typography.labelSmall)
                     }
                 }
 
@@ -382,19 +438,13 @@ fun SmsInboxScreen(
                         )
                         Spacer(modifier = Modifier.height(20.dp))
                         if (!uiState.showingDismissed && uiState.pendingLoaded && pendingSourceTransactions.isEmpty()) Button(
-                            onClick = {
-                                if (hasSmsPermission) {
-                                    viewModel.scanInbox(context)
-                                } else {
-                                    viewModel.onShowPermissionRationale()
-                                }
-                            },
+                            onClick = { requestScan(SmsInboxScanMode.INCREMENTAL) },
                             colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary),
                             shape = RoundedCornerShape(12.dp)
                         ) {
                             Icon(imageVector = Icons.Default.Refresh, contentDescription = null)
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text("Scan Past SMS Alerts")
+                            Text(if (uiState.hasScanCheckpoint) "Scan New SMS Alerts" else "Scan Past SMS Alerts")
                         }
                     }
                 }
@@ -428,13 +478,80 @@ fun SmsInboxScreen(
                     }
                 }
             }
+
+            }
+
+        latestUndoableAction.singleOrNull()?.let { action ->
+            Card(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
+                elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)
+            ) {
+                PendingActionFeedbackContent(
+                    action = action,
+                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                    onUndo = { viewModel.undoPendingAction(action.transactionId) },
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                )
+            }
+        }
+            }
+        }
+
+        if (showScanPeriodChooser) {
+            AlertDialog(
+                onDismissRequest = { showScanPeriodChooser = false },
+                title = { Text("Choose scan period") },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(
+                            onClick = { showScanPeriodChooser = false; requestScan(SmsInboxScanMode.LAST_30_DAYS) },
+                            modifier = Modifier.fillMaxWidth()
+                        ) { Text("Last 30 days") }
+                        OutlinedButton(
+                            onClick = { showScanPeriodChooser = false; requestScan(SmsInboxScanMode.LAST_YEAR) },
+                            modifier = Modifier.fillMaxWidth()
+                        ) { Text("Last 1 year") }
+                        OutlinedButton(
+                            onClick = {
+                                showScanPeriodChooser = false
+                                val today = Calendar.getInstance()
+                                DatePickerDialog(
+                                    context,
+                                    { _, year, month, day ->
+                                        val now = System.currentTimeMillis()
+                                        val start = SmsScanRangeRules.customStartOfDay(year, month, day)
+                                        if (start != null && !SmsScanRangeRules.isFutureLocalDate(year, month, day, now)) {
+                                            requestScan(SmsInboxScanMode.CUSTOM, start)
+                                        }
+                                    },
+                                    today.get(Calendar.YEAR),
+                                    today.get(Calendar.MONTH),
+                                    today.get(Calendar.DAY_OF_MONTH)
+                                ).apply { datePicker.maxDate = System.currentTimeMillis() }.show()
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) { Text("Custom start date") }
+                    }
+                },
+                confirmButton = {},
+                dismissButton = { TextButton(onClick = { showScanPeriodChooser = false }) { Text("Cancel") } }
+            )
         }
 
         // Permission Rationale Dialog
         if (uiState.showPermissionRationale) {
             SmsPermissionRationaleDialog(
-                onDismiss = { viewModel.onDismissPermissionRationale() },
+                onDismiss = {
+                    pendingScanModeName = null
+                    pendingCustomStart = null
+                    viewModel.onDismissPermissionRationale()
+                },
                 onRequestPermission = {
+                    viewModel.onDismissPermissionRationale()
                     permissionLauncher.launch(
                         arrayOf(
                             Manifest.permission.RECEIVE_SMS,
@@ -477,6 +594,7 @@ fun SmsInboxScreen(
                 dismissButton = { TextButton(onClick = { showConfirmAllDialog = false }) { Text("Cancel") } }
             )
         }
+      }
     }
 }
 

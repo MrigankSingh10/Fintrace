@@ -7,8 +7,8 @@ Google Play policy before every release.
 ## Build and signing
 
 - Build a signed Android App Bundle (`.aab`) for the `release` variant.
-- Use application ID `com.mrigank.fintrace`, version code `10`, and version name
-  `1.4.1` for this Play build.
+- Use application ID `com.mrigank.fintrace`, version code `11`, and version name
+  `1.5.0` for this Play build.
 - Keep the keystore and passwords outside Git. Back up the keystore securely.
 - Enroll in Play App Signing and securely back up the upload key. The Play app
   uses a new application ID, so it is a separate Android installation from
@@ -53,8 +53,9 @@ The declaration and review video should demonstrate:
 2. Fintrace shows its in-app disclosure immediately before Android's permission
    dialog and requires the user to tap **Allow SMS**.
 3. **Not now** leaves manual transaction entry fully usable.
-4. `READ_SMS` scans up to 30 days of existing messages only when the user starts
-   a scan.
+4. `READ_SMS` scans existing messages only when the user starts a scan. The user
+   can scan new messages since the last successful scan, the preceding 30 days
+   or year, or messages from a custom start date through the current time.
 5. `RECEIVE_SMS` processes new incoming transaction alerts while the app is not
    open and places matches into Pending Review.
 6. Sender, body, timestamp, and parsed financial details for matches are stored
@@ -123,7 +124,7 @@ Official testing requirements:
 ## Current API requirement
 
 From August 31, 2026, new phone/tablet apps and updates must target Android 16
-(API level 36) or higher. Fintrace v1.4.1 targets API 36 while retaining
+(API level 36) or higher. Fintrace v1.5.0 targets API 36 while retaining
 `minSdk` 26.
 
 Official target API requirements:

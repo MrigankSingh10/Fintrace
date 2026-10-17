@@ -1,11 +1,16 @@
 package com.fintrace.app.ui.components
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.sizeIn
+import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBackIosNew
@@ -211,6 +216,120 @@ fun MonthSwitcher(
                 }
             },
             confirmButton = { TextButton(onClick = { dialogOpen = false }) { Text("Close") } }
+        )
+    }
+}
+
+/** Home header variant with a centered month label and room for the trailing overflow action. */
+@Composable
+fun HomeMonthSwitcher(
+    month: YearMonth,
+    onMonthSelected: (YearMonth) -> Unit,
+    modifier: Modifier = Modifier,
+    currentMonth: YearMonth = YearMonth.now(),
+    trailingContent: @Composable () -> Unit = {}
+) {
+    var dialogOpen by remember { mutableStateOf(false) }
+    var dialogYear by remember(month) { mutableStateOf(month.year) }
+    val label = month.format(DateTimeFormatter.ofPattern("MMMM yyyy", Locale.getDefault()))
+
+    // Symmetric 96dp side regions keep the month centered on the screen even with the menu.
+    Row(
+        modifier = modifier.fillMaxWidth().heightIn(min = 56.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(Modifier.size(48.dp))
+        HomeMonthArrow(
+            previous = true,
+            enabled = true,
+            onClick = { onMonthSelected(month.minusMonths(1)) }
+        )
+        TextButton(
+            onClick = { dialogYear = month.year; dialogOpen = true },
+            modifier = Modifier.weight(1f).heightIn(min = 48.dp)
+                .semantics { contentDescription = "Choose month, $label" }
+        ) {
+            Text(
+                label,
+                textAlign = TextAlign.Center,
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 2,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+            )
+        }
+        HomeMonthArrow(
+            previous = false,
+            enabled = month < currentMonth,
+            onClick = { if (month < currentMonth) onMonthSelected(month.plusMonths(1)) }
+        )
+        Box(Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp), contentAlignment = Alignment.Center) {
+            trailingContent()
+        }
+    }
+
+    if (dialogOpen) {
+        AlertDialog(
+            onDismissRequest = { dialogOpen = false },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween,
+                    modifier = Modifier.fillMaxWidth()) {
+                    IconButton(onClick = { dialogYear-- }, modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+                        .semantics { contentDescription = "Previous year" }) {
+                        Icon(Icons.Default.ArrowBackIosNew, contentDescription = null)
+                    }
+                    Text(dialogYear.toString(), style = MaterialTheme.typography.titleLarge)
+                    IconButton(
+                        onClick = { if (YearMonth.of(dialogYear + 1, 1) <= currentMonth) dialogYear++ },
+                        enabled = YearMonth.of(dialogYear + 1, 1) <= currentMonth,
+                        modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+                            .semantics { contentDescription = "Next year" }
+                    ) { Icon(Icons.Default.ArrowForwardIos, contentDescription = null) }
+                }
+            },
+            text = {
+                Column(modifier = Modifier.sizeIn(maxHeight = 360.dp)) {
+                    (0..3).forEach { row ->
+                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.fillMaxWidth()) {
+                            (0..2).forEach { column ->
+                                val choice = YearMonth.of(dialogYear, row * 3 + column + 1)
+                                val selectable = choice <= currentMonth
+                                TextButton(
+                                    onClick = { if (selectable) { onMonthSelected(choice); dialogOpen = false } },
+                                    enabled = selectable,
+                                    colors = ButtonDefaults.textButtonColors(
+                                        contentColor = MaterialTheme.colorScheme.onSurface,
+                                        disabledContentColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                                    ),
+                                    modifier = Modifier.weight(1f).sizeIn(minHeight = 48.dp)
+                                        .semantics { contentDescription = choice.format(DateTimeFormatter.ofPattern("MMMM yyyy", Locale.getDefault())) }
+                                ) {
+                                    Text(choice.format(DateTimeFormatter.ofPattern("MMM", Locale.getDefault())), textAlign = TextAlign.Center)
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { dialogOpen = false }) { Text("Close") } }
+        )
+    }
+}
+
+@Composable
+private fun HomeMonthArrow(previous: Boolean, enabled: Boolean, onClick: () -> Unit) {
+    IconButton(
+        onClick = onClick,
+        enabled = enabled,
+        modifier = Modifier.size(48.dp)
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = if (enabled) 0.55f else 0.25f), CircleShape)
+            .semantics { contentDescription = if (previous) "Previous month" else "Next month" }
+    ) {
+        Icon(
+            imageVector = if (previous) Icons.Default.ArrowBackIosNew else Icons.Default.ArrowForwardIos,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = if (enabled) 1f else 0.38f)
         )
     }
 }

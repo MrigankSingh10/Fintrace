@@ -83,7 +83,7 @@ fun SmsPermissionRationaleDialog(
                         )
                         Spacer(Modifier.height(10.dp))
                         Text(
-                            text = "If you allow SMS access, Fintrace reads the sender, message body, and time from up to 30 days of existing SMS when you scan your inbox. Android can also deliver new incoming SMS to Fintrace for processing while the app is closed.",
+                            text = "If you allow SMS access, Fintrace reads the sender, message body, and time from the period you choose. You can scan new messages since your last successful scan, rescan the last 30 days or last year, or choose a custom start date. Android can also deliver new incoming SMS to Fintrace for processing while the app is closed.",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurface
                         )
@@ -119,7 +119,6 @@ fun SmsPermissionRationaleDialog(
                     Spacer(Modifier.height(8.dp))
                     Button(
                         onClick = {
-                            onDismiss()
                             onRequestPermission()
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = PrimaryEmerald),

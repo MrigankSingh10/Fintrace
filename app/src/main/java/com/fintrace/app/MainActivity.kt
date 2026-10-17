@@ -136,6 +136,7 @@ fun MainScreen(
     val currentRoute = navBackStackEntry?.destination?.route
 
     val isMainTab = currentRoute in Screen.primaryTabs.map { it.route }
+    val showTopAppBar = isMainTab && currentRoute != Screen.Dashboard.route
     val showSharedAddFab = shouldShowSharedAddTransactionFab(currentRoute)
     val pendingSmsCount by app.repository.getPendingCount().collectAsState(initial = 0)
     val incomeModelReady by app.incomeModelReady.collectAsState()
@@ -147,10 +148,20 @@ fun MainScreen(
     ) { mutableStateOf(YearMonth.now()) }
     var exportRequest by rememberSaveable { mutableStateOf(0) }
     var menuExpanded by remember { mutableStateOf(false) }
+    val exportReport = {
+        exportRequest += 1
+        if (currentRoute != Screen.Analytics.route) {
+            navController.navigate(Screen.Analytics.route) {
+                popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                launchSingleTop = true
+                restoreState = true
+            }
+        }
+    }
 
     Scaffold(
         topBar = {
-            if (isMainTab) {
+            if (showTopAppBar) {
                 TopAppBar(
                     title = {
                         Text(
@@ -163,43 +174,16 @@ fun MainScreen(
                         )
                     },
                     actions = {
-                        IconButton(onClick = { menuExpanded = true }) {
-                            Icon(Icons.Default.MoreVert, contentDescription = "More options")
-                        }
-                        DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
-                            DropdownMenuItem(
-                                text = { Text("Settings") },
-                                leadingIcon = { Icon(Icons.Default.Settings, contentDescription = null) },
-                                onClick = { menuExpanded = false; navController.navigate(Screen.Settings.route) }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Export report") },
-                                leadingIcon = { Icon(Icons.Default.FileDownload, contentDescription = null) },
-                                onClick = {
-                                    menuExpanded = false
-                                    exportRequest += 1
-                                    if (currentRoute != Screen.Analytics.route) {
-                                        navController.navigate(Screen.Analytics.route) {
-                                            popUpTo(navController.graph.findStartDestination().id) { saveState = true }
-                                            launchSingleTop = true
-                                            restoreState = true
-                                        }
-                                    }
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = { Text(if (isDarkTheme) "Light theme" else "Dark theme") },
-                                leadingIcon = {
-                                    Icon(if (isDarkTheme) Icons.Default.LightMode else Icons.Default.DarkMode, contentDescription = null)
-                                },
-                                onClick = { menuExpanded = false; onThemeToggle() }
-                            )
-                            DropdownMenuItem(
-                                text = { Text(if (pendingSmsCount > 0) "SMS Review ($pendingSmsCount)" else "SMS Review") },
-                                leadingIcon = { Icon(Icons.Default.MarkEmailUnread, contentDescription = null) },
-                                onClick = { menuExpanded = false; navController.navigate(Screen.SmsInbox.route) }
-                            )
-                        }
+                        MainOverflowMenuButton(
+                            expanded = menuExpanded,
+                            onExpandedChange = { menuExpanded = it },
+                            isDarkTheme = isDarkTheme,
+                            pendingSmsCount = pendingSmsCount,
+                            onSettings = { navController.navigate(Screen.Settings.route) },
+                            onExportReport = exportReport,
+                            onThemeToggle = onThemeToggle,
+                            onSmsReview = { navController.navigate(Screen.SmsInbox.route) }
+                        )
                     },
                     colors = TopAppBarDefaults.topAppBarColors(
                         containerColor = MaterialTheme.colorScheme.surface,
@@ -241,7 +225,19 @@ fun MainScreen(
                 onThemeToggle = onThemeToggle,
                 exportRequest = exportRequest,
                 onRequestExport = { exportRequest += 1 },
-                onExportRequestConsumed = { exportRequest = 0 }
+                onExportRequestConsumed = { exportRequest = 0 },
+                homeActions = {
+                    MainOverflowMenuButton(
+                        expanded = menuExpanded,
+                        onExpandedChange = { menuExpanded = it },
+                        isDarkTheme = isDarkTheme,
+                        pendingSmsCount = pendingSmsCount,
+                        onSettings = { navController.navigate(Screen.Settings.route) },
+                        onExportReport = exportReport,
+                        onThemeToggle = onThemeToggle,
+                        onSmsReview = { navController.navigate(Screen.SmsInbox.route) }
+                    )
+                }
             )
         }
     }
@@ -257,6 +253,46 @@ fun MainScreen(
                     arrayOf(Manifest.permission.RECEIVE_SMS, Manifest.permission.READ_SMS)
                 )
             }
+        )
+    }
+}
+
+@Composable
+private fun MainOverflowMenuButton(
+    expanded: Boolean,
+    onExpandedChange: (Boolean) -> Unit,
+    isDarkTheme: Boolean,
+    pendingSmsCount: Int,
+    onSettings: () -> Unit,
+    onExportReport: () -> Unit,
+    onThemeToggle: () -> Unit,
+    onSmsReview: () -> Unit
+) {
+    IconButton(onClick = { onExpandedChange(true) }) {
+        Icon(Icons.Default.MoreVert, contentDescription = "More options")
+    }
+    DropdownMenu(expanded = expanded, onDismissRequest = { onExpandedChange(false) }) {
+        DropdownMenuItem(
+            text = { Text("Settings") },
+            leadingIcon = { Icon(Icons.Default.Settings, contentDescription = null) },
+            onClick = { onExpandedChange(false); onSettings() }
+        )
+        DropdownMenuItem(
+            text = { Text("Export report") },
+            leadingIcon = { Icon(Icons.Default.FileDownload, contentDescription = null) },
+            onClick = { onExpandedChange(false); onExportReport() }
+        )
+        DropdownMenuItem(
+            text = { Text(if (isDarkTheme) "Light theme" else "Dark theme") },
+            leadingIcon = {
+                Icon(if (isDarkTheme) Icons.Default.LightMode else Icons.Default.DarkMode, contentDescription = null)
+            },
+            onClick = { onExpandedChange(false); onThemeToggle() }
+        )
+        DropdownMenuItem(
+            text = { Text(if (pendingSmsCount > 0) "SMS Review ($pendingSmsCount)" else "SMS Review") },
+            leadingIcon = { Icon(Icons.Default.MarkEmailUnread, contentDescription = null) },
+            onClick = { onExpandedChange(false); onSmsReview() }
         )
     }
 }

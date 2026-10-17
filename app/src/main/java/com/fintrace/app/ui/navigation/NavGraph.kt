@@ -82,7 +82,8 @@ fun AppNavGraph(
     onThemeToggle: () -> Unit = {},
     exportRequest: Int = 0,
     onRequestExport: () -> Unit = {},
-    onExportRequestConsumed: () -> Unit = {}
+    onExportRequestConsumed: () -> Unit = {},
+    homeActions: @Composable () -> Unit = {}
 ) {
     // Shared ViewModels — one instance per NavGraph lifetime (fine for screens that
     // don't mutate per-item state). AddEditTransactionViewModel is intentionally excluded.
@@ -135,7 +136,8 @@ fun AppNavGraph(
                 },
                 onNavigateToAnalytics = { navController.navigate(Screen.Analytics.route) },
                 sharedMonth = sharedMonth,
-                onSharedMonthSelected = onSharedMonthSelected
+                onSharedMonthSelected = onSharedMonthSelected,
+                endOfMonthControls = homeActions
             )
         }
 

@@ -69,6 +69,45 @@ class PendingActionCoordinatorTest {
         allowCommit.complete(Unit)
     }
 
+    @Test fun newerBannerReplacesOlderWithoutResurrectionAndHiddenActionStillCommits() = runTest {
+        val committed = mutableListOf<Long>()
+        val coordinator = PendingActionCoordinator(this, commit = { id, _ -> committed += id }, onError = {})
+        coordinator.stage(31, PendingAction.CONFIRM, "Older")
+        runCurrent()
+        val olderToken = coordinator.visibleUndoableRecord()?.second?.token
+        coordinator.stage(32, PendingAction.DISMISS, "Newer")
+        runCurrent()
+
+        assertEquals(32L, coordinator.visibleUndoableRecord()?.first)
+        assertTrue(coordinator.visibleUndoableRecord()!!.second.token > olderToken!!)
+        assertTrue(coordinator.undo(32))
+        assertEquals(null, coordinator.visibleUndoableRecord())
+
+        advanceTimeBy(5_000)
+        runCurrent()
+        assertEquals(listOf(31L), committed)
+        assertEquals(null, coordinator.visibleUndoableRecord())
+    }
+
+    @Test fun undoOnlyTargetsTheNewestVisibleAction() = runTest {
+        val committed = mutableListOf<Long>()
+        val coordinator = PendingActionCoordinator(this, commit = { id, _ -> committed += id }, onError = {})
+        coordinator.stage(41, PendingAction.CONFIRM, "Older")
+        runCurrent()
+        coordinator.stage(42, PendingAction.DISMISS, "Newest")
+        runCurrent()
+
+        val visibleId = coordinator.visibleUndoableRecord()?.first
+        assertEquals(42L, visibleId)
+        assertTrue(coordinator.undo(visibleId!!))
+        assertFalse(coordinator.undo(41L))
+        assertEquals(null, coordinator.visibleUndoableRecord())
+
+        advanceTimeBy(5_000)
+        runCurrent()
+        assertEquals(listOf(41L), committed)
+    }
+
     @Test fun staleNonPendingRowSkipsTheWriteAndCommitErrorRestoresPendingRow() = runTest {
         var writes = 0
         val errors = mutableListOf<String>()

@@ -169,6 +169,27 @@ class SmsParserTest {
     }
 
     @Test
+    fun parsesHdfcCardMessageWithAmountBetweenUsedAndOn() {
+        val sms = "Used Rs30.00 On HDFCBank Card 1111 At w507455550@ybl by UPI 487713330175 On 23-09 Not You? Call 18002586161/SMS BLOCK CC 1187 to 7308080808"
+        val timestamp = 1_727_093_973_000L
+
+        val parsed = SmsParser.parse(sms, "HDFCBK", timestamp)
+
+        assertNotNull("HDFC card SMS should parse", parsed)
+        assertEquals(30.0, parsed!!.amount, 0.001)
+        assertEquals("W507455550", parsed.merchant)
+        assertEquals(PaymentModeType.CREDIT_CARD, parsed.paymentModeType)
+        assertEquals("Credit Card", parsed.paymentModeName)
+        assertEquals("1111", parsed.cardLastFour)
+        assertEquals(TransactionType.EXPENSE, parsed.transactionType)
+        assertEquals(ParseConfidence.FULL, parsed.parseConfidence)
+        assertEquals("INR", parsed.currencyCode)
+        assertEquals(timestamp, parsed.timestamp)
+        assertEquals("HDFCBK", parsed.sender)
+        assertEquals(sms, parsed.rawBody)
+    }
+
+    @Test
     fun testIciciDebitPayeeCredited() {
         val sms = "ICICI Bank Acct XX857 debited for Rs 28.00 on 28-Aug-26; Umed Singh Goud credited. UPI:660662384392. Call 18002662 for dispute. SMS BLOCK 857 to 9215676766."
         val parsed = SmsParser.parse(sms, "ICICIB")

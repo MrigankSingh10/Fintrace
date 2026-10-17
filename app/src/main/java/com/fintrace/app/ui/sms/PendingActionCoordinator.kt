@@ -33,6 +33,10 @@ internal class PendingActionCoordinator(
     private val lock = Any()
     private var nextToken = 0L
     private val mutableActions = MutableStateFlow<Map<Long, PendingActionRecord>>(emptyMap())
+    // This watermark deliberately survives expiry/Undo. It prevents an older hidden action
+    // from becoming visible again after the newest banner disappears.
+    private val mutableNewestBannerToken = MutableStateFlow<Long?>(null)
+    val newestBannerToken: StateFlow<Long?> = mutableNewestBannerToken.asStateFlow()
     val actions: StateFlow<Map<Long, PendingActionRecord>> = mutableActions.asStateFlow()
     private val jobs = mutableMapOf<Long, TrackedJob>()
 
@@ -42,6 +46,7 @@ internal class PendingActionCoordinator(
         synchronized(lock) {
             if (mutableActions.value.containsKey(id)) return false
             token = ++nextToken
+            mutableNewestBannerToken.value = token
             mutableActions.value = mutableActions.value + (id to PendingActionRecord(token, action, description, PendingActionPhase.UNDOABLE))
             job = scope.launch(start = CoroutineStart.LAZY) {
                 try {
@@ -83,7 +88,7 @@ internal class PendingActionCoordinator(
     fun undo(id: Long): Boolean {
         val jobToCancel = synchronized(lock) {
             val current = mutableActions.value[id] ?: return false
-            if (current.phase != PendingActionPhase.UNDOABLE) return false
+            if (current.phase != PendingActionPhase.UNDOABLE || current.token != mutableNewestBannerToken.value) return false
             mutableActions.value = mutableActions.value - id
             jobs[id]?.takeIf { it.token == current.token }?.also { jobs.remove(id) }?.job
         }
@@ -94,6 +99,13 @@ internal class PendingActionCoordinator(
     fun undoableRecords(): List<Pair<Long, PendingActionRecord>> = actions.value.entries
         .filter { it.value.phase == PendingActionPhase.UNDOABLE }
         .map { it.key to it.value }
+
+    fun visibleUndoableRecord(): Pair<Long, PendingActionRecord>? = synchronized(lock) {
+        val newestToken = mutableNewestBannerToken.value ?: return@synchronized null
+        mutableActions.value.entries.firstOrNull {
+            it.value.token == newestToken && it.value.phase == PendingActionPhase.UNDOABLE
+        }?.let { it.key to it.value }
+    }
 
     fun activeIds(): Set<Long> = actions.value.keys
 

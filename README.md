@@ -4,7 +4,7 @@
 
 Built with Kotlin, Jetpack Compose, Material 3, and Room. Fintrace processes messages on the device, keeps your personal share separate from the full bill, and brings income and spending into a monthly dashboard. No bank login or backend account is required.
 
-[Latest release](https://github.com/MrigankSingh10/Fintrace/releases/tag/v1.4.1) · [Getting started](#getting-started) · [Architecture](docs/ARCHITECTURE.md) · [Testing](TESTING_GUIDE.md) · [Contributing](CONTRIBUTING.md) · [Privacy](PRIVACY.md)
+[Latest release](https://github.com/MrigankSingh10/Fintrace/releases/tag/v1.5.0) · [Getting started](#getting-started) · [Architecture](docs/ARCHITECTURE.md) · [Testing](TESTING_GUIDE.md) · [Contributing](CONTRIBUTING.md) · [Privacy](PRIVACY.md)
 
 ## A look inside
 
@@ -37,7 +37,7 @@ See the [architecture walkthrough](docs/ARCHITECTURE.md) for code organization, 
 
 ## Latest release
 
-[Fintrace v1.4.1](https://github.com/MrigankSingh10/Fintrace/releases/tag/v1.4.1) streamlines default payment methods and card mapping, adds clearer animated SMS dismissal feedback with a more accessible Undo prompt, improves budget-action visibility, and simplifies the category report heading.
+[Fintrace v1.5.0](https://github.com/MrigankSingh10/Fintrace/releases/tag/v1.5.0) adds incremental and custom-period SMS scanning, keeps dismissed alerts suppressed during rescans, shows a single replace-in-place review prompt, and refreshes the Home, transaction, and analytics interfaces.
 
 This release uses package `com.mrigank.fintrace`. GitHub releases v1.3.0 and earlier used `com.fintrace.app`, so Android treats v1.4.0 as a separate installation with separate local data; it does not upgrade or automatically migrate the older app.
 

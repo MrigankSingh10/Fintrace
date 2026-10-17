@@ -65,7 +65,10 @@ object SmsParser {
         ),
         Pattern.compile("\\b(?:txn|transaction)\\s+(?:of|at)\\b", Pattern.CASE_INSENSITIVE),
         Pattern.compile("\\bpurchase\\s+of\\b", Pattern.CASE_INSENSITIVE),
-        Pattern.compile("\\bused\\s+(?:at|on)\\b", Pattern.CASE_INSENSITIVE),
+        Pattern.compile(
+            "\\bused\\s+(?:(?:INR|RS\\.?|₹|USD|\\$|EUR|€|GBP|£|AED|SGD|CAD|AUD|JPY|¥)\\s*[0-9][0-9,]*(?:\\.[0-9]{1,2})?\\s+)?(?:at|on)\\b",
+            Pattern.CASE_INSENSITIVE
+        ),
         Pattern.compile("\\bswiped(?:\\s+(?:at|on))?\\b", Pattern.CASE_INSENSITIVE)
     )
 

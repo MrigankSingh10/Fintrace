@@ -12,6 +12,7 @@ import com.fintrace.app.data.model.PaymentModeType
 import com.fintrace.app.data.repository.FinanceRepository
 import com.fintrace.app.data.sms.SmsInboxScanner
 import com.fintrace.app.data.sms.SmsParser
+import com.fintrace.app.data.sms.SmsScanCheckpoint
 import com.fintrace.app.data.sms.SmsScanResult
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -26,6 +27,7 @@ import com.fintrace.app.data.model.TransactionStatus
 data class SmsInboxUiState(
     val isScanning: Boolean = false,
     val scanResult: SmsScanResult? = null,
+    val hasScanCheckpoint: Boolean = false,
     val showPermissionRationale: Boolean = false,
     val statusMessage: String? = null,
     val showingDismissed: Boolean = false,
@@ -69,8 +71,12 @@ class SmsInboxViewModel(
         rows.filterNot { it.transaction.id in staged }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val undoableActions: StateFlow<List<UndoablePendingAction>> = combine(rawPendingTransactions, actionCoordinator.actions) { rows, actions ->
-        actions.filterValues { it.phase == PendingActionPhase.UNDOABLE }.mapNotNull { (id, record) ->
+    val undoableActions: StateFlow<List<UndoablePendingAction>> = combine(
+        rawPendingTransactions,
+        actionCoordinator.actions,
+        actionCoordinator.newestBannerToken
+    ) { rows, actions, newestToken ->
+        actions.filterValues { it.token == newestToken && it.phase == PendingActionPhase.UNDOABLE }.mapNotNull { (id, record) ->
             rows.firstOrNull { it.transaction.id == id }?.let { item ->
                 UndoablePendingAction(
                     transactionId = id,
@@ -302,15 +308,67 @@ class SmsInboxViewModel(
         _uiState.value = _uiState.value.copy(showPermissionRationale = false)
     }
 
+    fun refreshScanCheckpoint(context: Context) {
+        _uiState.value = _uiState.value.copy(hasScanCheckpoint = SmsScanCheckpoint.read(context) != null)
+    }
+
     fun scanInbox(context: Context) {
+        startScan(context, scanMode = ScanMode.INCREMENTAL)
+    }
+
+    fun rescanLastDays(context: Context) {
+        startScan(context, scanMode = ScanMode.LAST_30_DAYS)
+    }
+
+    fun rescanLastYear(context: Context) {
+        startScan(context, scanMode = ScanMode.LAST_YEAR)
+    }
+
+    fun rescanFrom(context: Context, startInclusive: Long) {
+        if (startInclusive > System.currentTimeMillis()) return
+        startScan(context, scanMode = ScanMode.CUSTOM, customStartInclusive = startInclusive)
+    }
+
+    private enum class ScanMode { INCREMENTAL, LAST_30_DAYS, LAST_YEAR, CUSTOM }
+
+    private fun startScan(context: Context, scanMode: ScanMode, customStartInclusive: Long? = null) {
+        if (_uiState.value.isScanning) return
+        _uiState.value = _uiState.value.copy(
+            isScanning = true,
+            statusMessage = when (scanMode) {
+                ScanMode.LAST_30_DAYS -> "Rescanning the last 30 days of SMS..."
+                ScanMode.LAST_YEAR -> "Rescanning the last year of SMS..."
+                ScanMode.CUSTOM -> "Rescanning SMS from the selected date..."
+                ScanMode.INCREMENTAL -> "Scanning SMS inbox for bank alerts..."
+            },
+            actionError = null
+        )
         viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(isScanning = true, statusMessage = "Scanning SMS inbox for bank alerts...")
-            val result = SmsInboxScanner.scanInbox(context, repository, database, lookbackDays = 30)
-            _uiState.value = _uiState.value.copy(
-                isScanning = false,
-                scanResult = result,
-                statusMessage = "Scan complete: Found ${result.newlyImported} new transactions (${result.totalProcessed} SMS inspected)."
-            )
+            try {
+                val appContext = context.applicationContext
+                val result = when (scanMode) {
+                    ScanMode.LAST_30_DAYS -> SmsInboxScanner.rescanLastDays(appContext, repository, database)
+                    ScanMode.LAST_YEAR -> SmsInboxScanner.rescanLastYear(appContext, repository, database)
+                    ScanMode.CUSTOM -> SmsInboxScanner.rescanFrom(
+                        appContext, repository, database, requireNotNull(customStartInclusive)
+                    )
+                    ScanMode.INCREMENTAL -> SmsInboxScanner.scanInbox(appContext, repository, database)
+                }
+                _uiState.value = _uiState.value.copy(
+                    scanResult = result,
+                    hasScanCheckpoint = SmsScanCheckpoint.read(appContext) != null,
+                    statusMessage = "Scan complete: Found ${result.newlyImported} new transactions (${result.totalProcessed} SMS inspected)."
+                )
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                _uiState.value = _uiState.value.copy(
+                    scanResult = null,
+                    statusMessage = "SMS scan failed: ${failure.message ?: "Could not read the inbox."}"
+                )
+            } finally {
+                _uiState.value = _uiState.value.copy(isScanning = false)
+            }
         }
     }
 
