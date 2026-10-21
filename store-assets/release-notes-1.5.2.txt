@@ -1,0 +1,4 @@
+Fintrace 1.5.2
+
+- Refreshed the app icon for a clearer, more consistent appearance across Android launchers.
+- Added dedicated round, adaptive, monochrome, and Play Store icon assets.

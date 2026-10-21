@@ -7,8 +7,8 @@ Google Play policy before every release.
 ## Build and signing
 
 - Build a signed Android App Bundle (`.aab`) for the `release` variant.
-- Use application ID `com.mrigank.fintrace`, version code `11`, and version name
-  `1.5.0` for this Play build.
+- Use application ID `com.mrigank.fintrace`, version code `13`, and version name
+  `1.5.2` for this Play build.
 - Keep the keystore and passwords outside Git. Back up the keystore securely.
 - Enroll in Play App Signing and securely back up the upload key. The Play app
   uses a new application ID, so it is a separate Android installation from
@@ -124,7 +124,7 @@ Official testing requirements:
 ## Current API requirement
 
 From August 31, 2026, new phone/tablet apps and updates must target Android 16
-(API level 36) or higher. Fintrace v1.5.0 targets API 36 while retaining
+(API level 36) or higher. Fintrace v1.5.2 targets API 36 while retaining
 `minSdk` 26.
 
 Official target API requirements:
