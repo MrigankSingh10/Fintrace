@@ -30,7 +30,7 @@ object ExcelWorkbookGenerator {
         .replace("\"", "&quot;")
         .replace("'", "&apos;")
 
-    private val cols = listOf("A","B","C","D","E","F","G","H","I","J")
+    private val cols = listOf("A","B","C","D","E","F","G","H","I","J","K")
     private fun ref(col: Int, row: Int) = "${cols[col]}$row"
 
     /** Inline string cell */
@@ -90,7 +90,7 @@ object ExcelWorkbookGenerator {
         val rows = StringBuilder()
         val headers = listOf(
             "Date & Time","Description / Merchant","Category","Payment Mode",
-            "Type","My Share (Rs)","Original Amount (Rs)","Is Split?","Split Breakdown","Notes"
+            "Type","My Share (Rs)","Original Amount (Rs)","Is Split?","Split Breakdown","Notes","Recurring?"
         )
         rows.append("<row r=\"1\">")
         headers.forEachIndexed { ci, h -> rows.append(c(ref(ci, 1), h, 2)) }
@@ -117,6 +117,7 @@ object ExcelWorkbookGenerator {
             rows.append(c(ref(7, row), if (item.isSplit) "Yes" else "No"))
             rows.append(c(ref(8, row), splitStr))
             rows.append(c(ref(9, row), t.notes ?: ""))
+            rows.append(c(ref(10, row), if (t.isRecurring) "Yes" else "No"))
             rows.append("</row>")
         }
 
@@ -136,9 +137,10 @@ object ExcelWorkbookGenerator {
             append("""<col min="8" max="8" width="10" customWidth="1"/>""")
             append("""<col min="9" max="9" width="36" customWidth="1"/>""")
             append("""<col min="10" max="10" width="28" customWidth="1"/>""")
+            append("""<col min="11" max="11" width="12" customWidth="1"/>""")
             append("""</cols>""")
             append("""<sheetData>$rows</sheetData>""")
-            append("""<autoFilter ref="A1:J1"/>""")
+            append("""<autoFilter ref="A1:K1"/>""")
             append("""</worksheet>""")
         }
     }

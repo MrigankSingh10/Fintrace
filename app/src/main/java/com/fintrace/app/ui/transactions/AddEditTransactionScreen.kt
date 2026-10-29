@@ -327,68 +327,6 @@ private fun AddEditTransactionForm(
             if (state.isSplit) Text("This is the total bill before applying your share.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
 
-        if (state.type == TransactionType.EXPENSE) {
-            SectionCard(title = "Category") {
-                val visible = if (categoriesExpanded) categories else categories.take(5)
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    visible.forEach { category ->
-                        val tint = parseColorHex(category.colorHex)
-                        FilterChip(
-                            selected = state.selectedCategoryId == category.id,
-                            onClick = { onCategorySelect(category.id) },
-                            enabled = enabled,
-                            label = { Text(category.name) },
-                            leadingIcon = { Icon(IconMapper.getIcon(category.iconName), contentDescription = null, tint = tint, modifier = Modifier.size(16.dp)) }
-                        )
-                    }
-                    if (categories.size > 5) {
-                        FilterChip(
-                            selected = categoriesExpanded,
-                            onClick = { categoriesExpanded = !categoriesExpanded },
-                            enabled = enabled,
-                            label = { Text(if (categoriesExpanded) "Less" else "More") },
-                            trailingIcon = { Icon(if (categoriesExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore, contentDescription = null) }
-                        )
-                    }
-                }
-            }
-            SectionCard(title = "Payment method") {
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    paymentModes.forEach { mode ->
-                        FilterChip(
-                            selected = state.selectedPaymentModeId == mode.id,
-                            onClick = { onPaymentModeSelect(mode.id) },
-                            enabled = enabled,
-                            label = { Text(mode.name) },
-                            leadingIcon = { Icon(getPaymentModeIcon(mode.type), contentDescription = null, modifier = Modifier.size(16.dp)) }
-                        )
-                    }
-                }
-            }
-        }
-
-        SectionCard(title = "Date") {
-            OutlinedButton(
-                onClick = {
-                    val calendar = Calendar.getInstance().apply { timeInMillis = state.timestamp }
-                    DatePickerDialog(context, { _, year, month, day ->
-                        val selected = Calendar.getInstance().apply {
-                            timeInMillis = state.timestamp
-                            set(Calendar.YEAR, year); set(Calendar.MONTH, month); set(Calendar.DAY_OF_MONTH, day)
-                        }
-                        onTimestampChange(selected.timeInMillis)
-                    }, calendar.get(Calendar.YEAR), calendar.get(Calendar.MONTH), calendar.get(Calendar.DAY_OF_MONTH)).show()
-                },
-                enabled = enabled,
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(12.dp)
-            ) {
-                Icon(Icons.Default.CalendarMonth, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(8.dp))
-                Text(formatter.format(Date(state.timestamp)))
-            }
-        }
-
         SectionCard(title = "Merchant") {
             OutlinedTextField(
                 value = state.description,
@@ -399,18 +337,6 @@ private fun AddEditTransactionForm(
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(12.dp)
-            )
-        }
-
-        SectionCard(title = "Notes") {
-            OutlinedTextField(
-                value = state.notes,
-                onValueChange = onNotesChange,
-                enabled = enabled,
-                label = { Text("Notes (optional)") },
-                modifier = Modifier.fillMaxWidth(),
-                minLines = 2,
-                maxLines = 4
             )
         }
 
@@ -506,6 +432,80 @@ private fun AddEditTransactionForm(
                     Text("Your share ${formatCurrency(state.personalShareValue, state.currency)} · Others $othersLabel", style = MaterialTheme.typography.labelMedium, color = SplitBadgeText)
                 }
             }
+        }
+
+        if (state.type == TransactionType.EXPENSE) {
+            SectionCard(title = "Category") {
+                val visible = if (categoriesExpanded) categories else categories.take(5)
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    visible.forEach { category ->
+                        val tint = parseColorHex(category.colorHex)
+                        FilterChip(
+                            selected = state.selectedCategoryId == category.id,
+                            onClick = { onCategorySelect(category.id) },
+                            enabled = enabled,
+                            label = { Text(category.name) },
+                            leadingIcon = { Icon(IconMapper.getIcon(category.iconName), contentDescription = null, tint = tint, modifier = Modifier.size(16.dp)) }
+                        )
+                    }
+                    if (categories.size > 5) {
+                        FilterChip(
+                            selected = categoriesExpanded,
+                            onClick = { categoriesExpanded = !categoriesExpanded },
+                            enabled = enabled,
+                            label = { Text(if (categoriesExpanded) "Less" else "More") },
+                            trailingIcon = { Icon(if (categoriesExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore, contentDescription = null) }
+                        )
+                    }
+                }
+            }
+            SectionCard(title = "Payment method") {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    paymentModes.forEach { mode ->
+                        FilterChip(
+                            selected = state.selectedPaymentModeId == mode.id,
+                            onClick = { onPaymentModeSelect(mode.id) },
+                            enabled = enabled,
+                            label = { Text(mode.name) },
+                            leadingIcon = { Icon(getPaymentModeIcon(mode.type), contentDescription = null, modifier = Modifier.size(16.dp)) }
+                        )
+                    }
+                }
+            }
+        }
+
+        SectionCard(title = "Date") {
+            OutlinedButton(
+                onClick = {
+                    val calendar = Calendar.getInstance().apply { timeInMillis = state.timestamp }
+                    DatePickerDialog(context, { _, year, month, day ->
+                        val selected = Calendar.getInstance().apply {
+                            timeInMillis = state.timestamp
+                            set(Calendar.YEAR, year); set(Calendar.MONTH, month); set(Calendar.DAY_OF_MONTH, day)
+                        }
+                        onTimestampChange(selected.timeInMillis)
+                    }, calendar.get(Calendar.YEAR), calendar.get(Calendar.MONTH), calendar.get(Calendar.DAY_OF_MONTH)).show()
+                },
+                enabled = enabled,
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Icon(Icons.Default.CalendarMonth, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text(formatter.format(Date(state.timestamp)))
+            }
+        }
+
+        SectionCard(title = "Notes") {
+            OutlinedTextField(
+                value = state.notes,
+                onValueChange = onNotesChange,
+                enabled = enabled,
+                label = { Text("Notes (optional)") },
+                modifier = Modifier.fillMaxWidth(),
+                minLines = 2,
+                maxLines = 4
+            )
         }
 
         SectionCard(title = "Repeat monthly") {

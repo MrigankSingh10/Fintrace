@@ -7,22 +7,19 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.fintrace.app.data.local.relation.TransactionWithDetails
 import com.fintrace.app.data.model.TransactionType
 import com.fintrace.app.ui.components.*
-import com.fintrace.app.ui.sms.*
-import java.text.SimpleDateFormat
 import java.time.YearMonth
 import java.time.format.DateTimeFormatter
-import java.util.Date
 import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
@@ -34,60 +31,30 @@ fun TransactionListScreen(
     sharedMonth: YearMonth? = null,
     onSharedMonthSelected: ((YearMonth) -> Unit)? = null,
     showAddFab: Boolean = true,
-    smsInboxViewModel: SmsInboxViewModel? = null,
     onNavigateToSmsReview: () -> Unit = {}
 ) {
-    val segment by viewModel.segment.collectAsState()
     val allTransactions by viewModel.filteredTransactions.collectAsState()
     val selectedSource by viewModel.sourceTransactions.collectAsState()
+    val pendingCount by viewModel.pendingCount.collectAsState()
     val filter by viewModel.filter.collectAsState()
     val selectedMonth by viewModel.selectedMonth.collectAsState()
     val categories by viewModel.categories.collectAsState()
     val paymentModes by viewModel.paymentModes.collectAsState()
-    val pending = smsInboxViewModel?.pendingTransactions?.collectAsState(initial = emptyList())?.value.orEmpty()
-    val pendingSource = smsInboxViewModel?.pendingSourceTransactions?.collectAsState(initial = emptyList())?.value.orEmpty()
-    val dismissed = smsInboxViewModel?.dismissedTransactions?.collectAsState(initial = emptyList())?.value.orEmpty()
-    val smsState = smsInboxViewModel?.uiState?.collectAsState(initial = SmsInboxUiState())?.value ?: SmsInboxUiState()
-    val undoables = smsInboxViewModel?.undoableActions?.collectAsState(initial = emptyList())?.value.orEmpty()
-    val cardMappings = smsInboxViewModel?.cardMappings?.collectAsState(initial = emptyList())?.value.orEmpty()
-    val displayRows = when (segment) {
-        TransactionSegment.ALL -> allTransactions
-        TransactionSegment.PENDING -> if (smsState.pendingLoaded) pending.filter { matchesTransactionFilter(it, filter) }.sortedForPresentation() else emptyList()
-        TransactionSegment.DISMISSED -> dismissed.filter { matchesTransactionFilter(it, filter) }.sortedForPresentation()
-    }
+    val displayRows = allTransactions
     LaunchedEffect(sharedMonth) { sharedMonth?.let(viewModel::onMonthSelected) }
     var showFilterSheet by remember { mutableStateOf(false) }
     var selectedDetailItem by remember { mutableStateOf<TransactionWithDetails?>(null) }
-    var pendingCardToMap by remember { mutableStateOf<Pair<String, TransactionWithDetails>?>(null) }
     var deleteTarget by remember { mutableStateOf<TransactionWithDetails?>(null) }
-    var confirmAllSnapshot by remember { mutableStateOf<List<TransactionWithDetails>?>(null) }
-    val dateFormatter = remember { SimpleDateFormat("dd MMM yyyy, hh:mm a", Locale.getDefault()) }
     val activeFilterCount = filter.categoryIds.size + filter.paymentModeIds.size + (if (filter.type != null) 1 else 0) + (if (filter.hasSplit != null) 1 else 0)
     val hasActiveFilters = activeFilterCount > 0 || filter.searchQuery.isNotBlank()
-    val sourceCount = when (segment) {
-        TransactionSegment.ALL -> selectedSource.size
-        TransactionSegment.PENDING -> pendingSource.size
-        TransactionSegment.DISMISSED -> dismissed.size
-    }
-
     Scaffold(containerColor = MaterialTheme.colorScheme.background, floatingActionButton = {
         if (showAddFab) FloatingActionButton(onClick = onNavigateToAddTransaction) { Text("Add") }
     }) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
-            androidx.compose.foundation.lazy.LazyRow(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(TransactionSegment.entries, key = { it.name }) { item ->
-                    val count = when (item) { TransactionSegment.ALL -> null; TransactionSegment.PENDING -> pending.size; TransactionSegment.DISMISSED -> dismissed.size }
-                    FilterChip(selected = segment == item, onClick = { viewModel.selectSegment(item) }, label = {
-                        Text(when (item) { TransactionSegment.ALL -> "All"; TransactionSegment.PENDING -> "Pending${count?.let { " $it" } ?: ""}"; TransactionSegment.DISMISSED -> "Dismissed${count?.let { " $it" } ?: ""}" })
-                    })
-                }
+            if (pendingCount > 0) {
+                PendingReviewBanner(pendingCount, onClick = onNavigateToSmsReview)
             }
-            if (segment == TransactionSegment.ALL) {
-                MonthSwitcher(month = sharedMonth ?: selectedMonth, onMonthSelected = onSharedMonthSelected ?: viewModel::onMonthSelected, modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp))
-            } else Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text("All months", modifier = Modifier.weight(1f), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                if (segment == TransactionSegment.PENDING && pending.isNotEmpty()) TextButton(onClick = { confirmAllSnapshot = pending.toList() }) { Text("Confirm all") }
-            }
+            MonthSwitcher(month = sharedMonth ?: selectedMonth, onMonthSelected = onSharedMonthSelected ?: viewModel::onMonthSelected, modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp))
             Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(value = filter.searchQuery, onValueChange = viewModel::onSearchQueryChanged, modifier = Modifier.weight(1f), singleLine = true, placeholder = { Text("Search transactions") }, leadingIcon = { Icon(Icons.Default.Search, null) })
                 BadgedBox(badge = { if (activeFilterCount > 0) Badge { Text(activeFilterCount.toString()) } }) {
@@ -102,42 +69,13 @@ fun TransactionListScreen(
                     filter.hasSplit?.let { FilterChip(true, { viewModel.setHasSplit(null) }, label = { Text(if (it) "Split" else "No split") }) }
                 }
             }
-            if (segment == TransactionSegment.PENDING || segment == TransactionSegment.DISMISSED) {
-                smsState.actionError?.let { error -> Text(error, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(horizontal = 16.dp)) }
-                undoables.forEach { action ->
-                    Snackbar(
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
-                        containerColor = MaterialTheme.colorScheme.inverseSurface,
-                        contentColor = MaterialTheme.colorScheme.inverseOnSurface
-                    ) {
-                        PendingActionFeedbackContent(
-                            action = action,
-                            contentColor = MaterialTheme.colorScheme.inverseOnSurface,
-                            onUndo = { smsInboxViewModel?.undoPendingAction(action.transactionId) }
-                        )
-                    }
-                }
-                if (!smsState.pendingLoaded && segment == TransactionSegment.PENDING) LinearProgressIndicator(Modifier.fillMaxWidth())
-            }
             if (displayRows.isEmpty()) {
                 Column(Modifier.fillMaxSize().padding(start = 28.dp, top = 28.dp, end = 28.dp, bottom = 100.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
-                    val title = when {
-                        segment == TransactionSegment.PENDING && !smsState.pendingLoaded -> "Loading pending review…"
-                        hasActiveFilters && sourceCount > 0 -> "No matches"
-                        segment == TransactionSegment.PENDING && pending.isEmpty() && sourceCount > 0 -> "Saving review action…"
-                        segment == TransactionSegment.ALL -> "No transactions for ${selectedMonth.format(DateTimeFormatter.ofPattern("MMMM yyyy", Locale.getDefault()))}"
-                        segment == TransactionSegment.PENDING -> "All caught up"
-                        else -> "No dismissed transactions"
-                    }
+                    val title = if (hasActiveFilters && selectedSource.isNotEmpty()) "No matches" else "No transactions for ${selectedMonth.format(DateTimeFormatter.ofPattern("MMMM yyyy", Locale.getDefault()))}"
                     Text(title, style = MaterialTheme.typography.titleMedium)
-                    if (hasActiveFilters && sourceCount > 0) TextButton(onClick = viewModel::clearFilters) { Text("Clear filters") }
-                    if (segment == TransactionSegment.PENDING && smsState.pendingLoaded && sourceCount == 0) {
-                        Text("New bank SMS alerts will appear here for review.", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 8.dp))
-                        TextButton(onClick = onNavigateToSmsReview) { Text("Scan SMS") }
-                    }
+                    if (hasActiveFilters && selectedSource.isNotEmpty()) TextButton(onClick = viewModel::clearFilters) { Text("Clear filters") }
                 }
-            } else when (segment) {
-                TransactionSegment.ALL -> {
+            } else {
                     val presentation = remember(displayRows) { buildTransactionListPresentation(displayRows) }
                     LazyColumn(contentPadding = PaddingValues(start = 16.dp, top = 8.dp, end = 16.dp, bottom = 96.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         if (presentation.recurringTransactions.isNotEmpty()) {
@@ -165,22 +103,6 @@ fun TransactionListScreen(
                             }
                         }
                     }
-                }
-                TransactionSegment.PENDING -> LazyColumn(contentPadding = PaddingValues(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 96.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    items(displayRows, key = { it.transaction.id }) { item ->
-                        PendingSmsCard(item, categories, cardMappings, dateFormatter,
-                            onConfirm = { smsInboxViewModel?.onConfirmTransaction(item) }, onSplitAndEdit = { onNavigateToEditTransaction(item.transaction.id) },
-                            onDismiss = { smsInboxViewModel?.onDismissTransaction(item) }, onSelectCategory = { id -> smsInboxViewModel?.onQuickCategoryChange(item, id) },
-                            onMapCard = { lastFour -> pendingCardToMap = lastFour to item },
-                            onSelectPaymentMode = { id -> smsInboxViewModel?.onQuickPaymentModeChange(item, id) }, paymentModes = paymentModes)
-                    }
-                }
-                TransactionSegment.DISMISSED -> LazyColumn(contentPadding = PaddingValues(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 96.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    items(displayRows, key = { it.transaction.id }) { item ->
-                        TransactionRow(title = item.transaction.description, myShareAmount = item.transaction.myShareAmount, originalAmount = item.transaction.originalAmount, categoryName = item.category?.name, categoryIcon = item.category?.iconName, categoryColorHex = item.category?.colorHex, type = item.transaction.type, status = com.fintrace.app.data.model.TransactionStatus.DISMISSED, isRecurring = item.transaction.isRecurring, currencyCode = item.transaction.currency)
-                        TextButton(onClick = { smsInboxViewModel?.onRestoreTransaction(item) }) { Text("Restore for review") }
-                    }
-                }
             }
         }
     }
@@ -203,25 +125,32 @@ fun TransactionListScreen(
     }
     selectedDetailItem?.let { item -> TransactionDetailSheet(item, onDismiss = { selectedDetailItem = null }, onEdit = { val id = item.transaction.id; selectedDetailItem = null; onNavigateToEditTransaction(id) }, onDelete = { deleteTarget = item }) }
     deleteTarget?.let { item -> AlertDialog(onDismissRequest = { deleteTarget = null }, title = { Text("Delete transaction?") }, text = { Text("${item.transaction.description} will be permanently deleted, including its split details. This cannot be undone.") }, confirmButton = { TextButton(onClick = { viewModel.deleteTransaction(item); deleteTarget = null; selectedDetailItem = null }) { Text("Delete") } }, dismissButton = { TextButton(onClick = { deleteTarget = null }) { Text("Cancel") } }) }
-    pendingCardToMap?.let { (lastFour, item) -> CardMappingDialog(
-        lastFour,
-        paymentModes,
-        item.transaction.paymentModeId,
-        { pendingCardToMap = null },
-        { modeId -> smsInboxViewModel?.onCreateCardMapping(lastFour, modeId, item); pendingCardToMap = null },
-        onAddPaymentMode = { name, _, iconName, onCreated ->
-            smsInboxViewModel?.addCreditCardPaymentMode(name, iconName, onCreated)
+}
+
+@Composable
+internal fun PendingReviewBanner(count: Int, onClick: () -> Unit) {
+    Card(
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    "$count transaction${if (count == 1) "" else "s"} ${if (count == 1) "needs" else "need"} review",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer
+                )
+                Text(
+                    "Check imported bank SMS",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer
+                )
+            }
+            Icon(Icons.Default.ChevronRight, contentDescription = "Open SMS review", tint = MaterialTheme.colorScheme.onSecondaryContainer)
         }
-    ) }
-    confirmAllSnapshot?.let { snapshot ->
-        val totals = snapshot.groupBy { it.transaction.currency.uppercase() }.mapValues { (_, rows) -> rows.sumOf { it.transaction.myShareAmount } }
-        AlertDialog(onDismissRequest = { confirmAllSnapshot = null }, title = { Text("Confirm all pending?") },
-            text = { Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text("This confirms ${snapshot.size} transactions across all months. Active filters do not limit this action.")
-                totals.forEach { (currency, amount) -> Text("${formatCurrency(amount, currency)} personal share") }
-                Text("This bulk action cannot be undone.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            } },
-            confirmButton = { TextButton(onClick = { smsInboxViewModel?.onConfirmAllPending(snapshot.map { it.transaction.id }.toSet()); confirmAllSnapshot = null }) { Text("Confirm all") } },
-            dismissButton = { TextButton(onClick = { confirmAllSnapshot = null }) { Text("Cancel") } })
     }
 }

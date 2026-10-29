@@ -27,8 +27,6 @@ internal fun YearMonth.transactionTimestampRange(zone: ZoneId = ZoneId.systemDef
     return start until nextMonth
 }
 
-enum class TransactionSegment { ALL, PENDING, DISMISSED }
-
 data class TransactionListFilter(
     val searchQuery: String = "",
     val categoryIds: Set<Long> = emptySet(),
@@ -47,8 +45,6 @@ class TransactionListViewModel(private val repository: FinanceRepository) : View
     val paymentModes: StateFlow<List<PaymentModeEntity>> = repository.getAllPaymentModes().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
     private val _filter = MutableStateFlow(TransactionListFilter())
     val filter: StateFlow<TransactionListFilter> = _filter.asStateFlow()
-    private val _segment = MutableStateFlow(TransactionSegment.ALL)
-    val segment: StateFlow<TransactionSegment> = _segment.asStateFlow()
     private val _selectedMonth = MutableStateFlow(YearMonth.now())
     val selectedMonth = _selectedMonth.asStateFlow()
 
@@ -58,17 +54,8 @@ class TransactionListViewModel(private val repository: FinanceRepository) : View
         repository.getTransactionsForRange(range.first, range.last).map { MonthTransactions(month, it) }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), MonthTransactions(YearMonth.now(), emptyList()))
 
-    private val sourceRows = combine(monthRows, repository.getPendingTransactions(), repository.getDismissedTransactions()) { month, pending, dismissed ->
-        Triple(month, pending, dismissed)
-    }
-
-    val sourceTransactions: StateFlow<List<TransactionWithDetails>> = combine(sourceRows, _segment, selectedMonth) { sources, segment, selected ->
-        val (month, pending, dismissed) = sources
-        when (segment) {
-            TransactionSegment.ALL -> if (month.month == selected) month.rows.filter { it.transaction.status == TransactionStatus.CONFIRMED } else emptyList()
-            TransactionSegment.PENDING -> pending
-            TransactionSegment.DISMISSED -> dismissed
-        }
+    val sourceTransactions: StateFlow<List<TransactionWithDetails>> = combine(monthRows, selectedMonth) { month, selected ->
+        if (month.month == selected) month.rows.filter { it.transaction.status == TransactionStatus.CONFIRMED } else emptyList()
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val filteredTransactions: StateFlow<List<TransactionWithDetails>> = combine(sourceTransactions, _filter) { source, filter ->
@@ -93,7 +80,6 @@ class TransactionListViewModel(private val repository: FinanceRepository) : View
     fun onNextMonth() { _selectedMonth.value = _selectedMonth.value.plusMonths(1) }
     fun onResetToCurrentMonth() { _selectedMonth.value = YearMonth.now() }
     fun onMonthSelected(month: YearMonth) { _selectedMonth.value = month }
-    fun selectSegment(value: TransactionSegment) { _segment.value = value }
     fun onSearchQueryChanged(query: String) { _filter.value = _filter.value.copy(searchQuery = query) }
     fun toggleCategory(id: Long) { _filter.value = _filter.value.copy(categoryIds = _filter.value.categoryIds.toggle(id)) }
     fun togglePaymentMode(id: Long) { _filter.value = _filter.value.copy(paymentModeIds = _filter.value.paymentModeIds.toggle(id)) }

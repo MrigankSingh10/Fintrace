@@ -13,8 +13,8 @@ android {
         applicationId = "com.mrigank.fintrace"
         minSdk = 26
         targetSdk = 36
-        versionCode = 13
-        versionName = "1.5.2"
+        versionCode = 14
+        versionName = "1.5.3"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {

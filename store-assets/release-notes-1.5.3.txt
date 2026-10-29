@@ -1,0 +1,5 @@
+Fintrace 1.5.3
+
+- Simplified transaction history and added a direct link to review imported bank SMS.
+- Reordered the transaction form for a clearer entry flow.
+- Added a recurring status column to Excel transaction exports.

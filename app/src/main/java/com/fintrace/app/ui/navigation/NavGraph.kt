@@ -153,7 +153,6 @@ fun AppNavGraph(
                 sharedMonth = sharedMonth,
                 onSharedMonthSelected = onSharedMonthSelected,
                 showAddFab = false,
-                smsInboxViewModel = smsInboxViewModel,
                 onNavigateToSmsReview = {
                     smsInboxViewModel.showPendingTransactions()
                     navController.navigate(Screen.SmsInbox.route)
